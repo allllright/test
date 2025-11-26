@@ -1,25 +1,3 @@
-You're thinking in exactly the right direction.
-Now that Section 5 has revealed important architectural constraints, it does make sense to revisit Section 1 (Overview) and tighten it so the entire document tells a coherent story.
-
-Let me walk you through this as a senior SRE reviewing a teammate’s draft.
-
-✅ High-Level Review of the Entire Document
-
-Your document is already strong:
-
-Section 1 → explains predictive scaling clearly
-
-Section 2 → explains how it works
-
-Section 3 → compares strategies
-
-Section 4 → cost & limitations
-
-Section 5 → applicability and environment findings
-
-But now that Section 5 provides new insights about your actual ASGs (min=1, no metrics, many workloads not horizontally scalable), Section 1 should reflect that context at a high level.
-
-Otherwise, Section 1 feels too generic, and the reader won’t understand the relevance or the constraints until Section 5.
 
 🎯 Where We Should Make Changes
 
