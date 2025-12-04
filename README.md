@@ -1,47 +1,144 @@
-Here is your refined, polished, and fully-consistent Section 1, with every improvement applied exactly as discussed — no extra changes, no style drift.
+Refactored module code
 
-It is ready to paste into Confluence.
+variables.tf
 
-1. Overview
+variable "guids_to_tag" {
+  description = "Set of New Relic entity GUIDs to tag"
+  type        = set(string)
 
-What is predictive auto-scaling?
-Amazon EC2 Auto Scaling predictive scaling is a feature that uses machine learning to forecast demand and proactively adjust EC2 capacity. Instead of waiting for CPU or request metrics to rise, the Auto Scaling Group (ASG) launches instances ahead of time so they are fully initialised and healthy before the predicted peak period.
+  validation {
+    condition     = length(var.guids_to_tag) > 0
+    error_message = "guids_to_tag must contain at least one GUID."
+  }
 
-Predictive scaling improves availability during recurring load patterns and works alongside reactive policies for unexpected spikes. It reduces scale-out lag during peak periods, minimises reliance on scheduled actions, and helps maintain SLO performance. However, forecasts may occasionally over-provision, increasing cost.
+  validation {
+    condition = alltrue([
+      for g in var.guids_to_tag : length(trimspace(g)) > 10
+    ])
+    error_message = "Each GUID must be a non-empty string with length > 10."
+  }
+}
 
-Prerequisites and applicability:
-Predictive scaling requires workloads that can scale horizontally (min < max), stable ASG-level CloudWatch metrics, and recurring demand patterns for the model to learn. Instance-level patterns alone are not sufficient; the ASG must expose the load metric and be capable of adjusting capacity. These constraints and the state of current ASGs are evaluated in Section 5.
+variable "include_default_tags" {
+  description = "Whether to include default tags (e.g. AWS tagging standard) when tagging entities."
+  type        = bool
+  default     = true
+}
 
-Key findings:
+variable "default_tags" {
+  description = "Default tags (usually coming from AWS tagging standard) as key -> set(values)."
+  type        = map(set(string))
+  default     = {}
+}
 
-Most effective for workloads with stable, repeating demand patterns.
+variable "additional_tags" {
+  description = "Extra entity tags to apply on top of default_tags."
+  type        = map(set(string))
+  default     = {}
+}
 
-Requires at least 24 hours of ASG metric history, with 2+ weeks recommended for accurate forecasting.
+> Note: I added default_tags as a separate variable – the module itself can’t see the caller’s local.tags, so we pass them in explicitly.
 
-Only performs predictive scale-out; scale-in always relies on reactive policies.
 
-Predictive scaling + target tracking provides the best balance between proactive readiness and reactive stability.
 
-Not suitable for workloads driven by unpredictable or irregular spikes or single-instance architecture.
 
-Current ASGs do not meet prerequisite criteria; therefore, predictive scaling is not applicable until the architecture and ASG configuration are adjusted.
+---
 
-High-level recommendation and next steps:
+main.tf
 
-Evaluate whether predictive auto scaling is needed. If yes, enable the prerequisites (ASG-level CloudWatch metrics and an ASG that can scale horizontally: min < max).
+terraform {
+  required_providers {
+    newrelic = {
+      source  = "newrelic/newrelic"
+      version = "~> 3.25"
+    }
+  }
+}
 
-Enable Forecast Only mode on a candidate ASG to evaluate forecast quality for 2 weeks.
+locals {
+  # Decide which base tags to start from
+  base_tags = var.include_default_tags ? var.default_tags : {}
 
-Confirm that the workload exhibits consistent daily/weekly cycles and that forecasts align with real peaks.
+  # Final tag set used for newrelic_entity_tags
+  entity_tags = merge(
+    base_tags,
+    var.additional_tags,
+  )
+}
 
-If accurate, consider a PoC using Forecast + Scale, combined with an existing target tracking policy.
+resource "newrelic_entity_tags" "entity_tags" {
+  for_each = var.guids_to_tag
+  guid     = each.value
 
-Continue monitoring forecast accuracy, utilisation and cost impact before broader adoption.
+  dynamic "tag" {
+    for_each = local.entity_tags
+    content {
+      key    = tag.key
+      values = tolist(tag.value) # tag.value is a set(string)
+    }
+  }
+}
 
-If you’d like, I can now help you produce:
+outputs.tf (your existing idea still works)
 
-✅ a final polished version of the full document
-✅ a summary for your Jira ticket
-✅ meeting prep notes for Christian / Anthi
+output "total_entities_tagged" {
+  description = "Total number of entities tagged"
+  value       = length(newrelic_entity_tags.entity_tags)
+}
 
-Just tell me what you need next.
+output "tagged_entities" {
+  description = "Map of GUIDs and their applied tags + resource ID"
+  value = {
+    for guid, res in newrelic_entity_tags.entity_tags :
+    guid => {
+      resource_id = res.id
+      # Just echo back what we applied
+      applied_tags = local.entity_tags
+    }
+  }
+}
+
+
+---
+
+3. Updated usage in the consumer repo
+
+This replaces the code you showed in the screenshot.
+
+locals {
+  # 1) Default / AWS-style tags (from the tagging standard doc)
+  default_tags = {
+    Environment    = toset(["Test"])
+    Layer          = toset(["900"])
+    Terraform      = toset(["True"])
+    Project        = toset(["Test"])
+    Repo           = toset(["https://gitlab.xm.com/rackspace/xm/..."])
+    Owner          = toset(["SRE"])
+    Team           = toset(["SRE"])
+    BusinessStream = toset(["Funding"])
+    Brand          = toset(["XM"])
+  }
+
+  # 2) Extra / New Relic–specific tags (optional)
+  additional_entity_tags = {
+    newrelicAccount = toset(["test_account"])
+    # If you want multiple values:
+    # Environment = toset(["Production", "Staging"])
+  }
+
+  guids_to_tag = toset([
+    "NZIwNTMXMxFWFR8U0VSVk1DRV9MRVZFTHWzNzA3NZY",
+    "NZIwNTMXMxBUE180VBQTElDQVRJT058NDUyODE5NZYy",
+    "NZIwNTMXMxFWFR8U0VSVk1DRV9MRVZFTHWzNzU5MTc",
+  ])
+}
+
+module "newrelic_entity_tags" {
+  source = "../modules/newrelic-entitytags"
+
+  guids_to_tag        = local.guids_to_tag
+  include_default_tags = true      # or false if you want *only* additional tags
+  default_tags         = local.default_tags
+  additional_tags      = local.additional_entity_tags
+}
+
