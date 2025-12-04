@@ -1,144 +1,58 @@
-Refactored module code
+You are a senior Terraform engineer.
 
-variables.tf
+I have a Terraform module that manages New Relic entity tags.  
+The original implementation is:
 
-variable "guids_to_tag" {
-  description = "Set of New Relic entity GUIDs to tag"
-  type        = set(string)
+- Inputs:
+  - `guids_to_tag` (set(string)) – GUIDs of New Relic entities.
+  - `entity_tags` (map(set(string))) – final tag set already merged by the caller.
+- Behaviour:
+  - `main.tf` defines a `newrelic_entity_tags` resource with:
+    - `for_each = var.guids_to_tag`
+    - a `dynamic "tag"` block that iterates over `var.entity_tags`.
+  - All merge/combining logic (AWS default tags + NR-specific tags) happens **outside** the module in the caller’s code.
 
-  validation {
-    condition     = length(var.guids_to_tag) > 0
-    error_message = "guids_to_tag must contain at least one GUID."
-  }
+We’ve decided to refactor this to make the module API cleaner and move the merge logic *inside* the module.
 
-  validation {
-    condition = alltrue([
-      for g in var.guids_to_tag : length(trimspace(g)) > 10
-    ])
-    error_message = "Each GUID must be a non-empty string with length > 10."
-  }
-}
+### Target design
 
-variable "include_default_tags" {
-  description = "Whether to include default tags (e.g. AWS tagging standard) when tagging entities."
-  type        = bool
-  default     = true
-}
+Refactor the module so that:
 
-variable "default_tags" {
-  description = "Default tags (usually coming from AWS tagging standard) as key -> set(values)."
-  type        = map(set(string))
-  default     = {}
-}
+1. **Inputs become:**
+   - `guids_to_tag` – `set(string)` (unchanged).
+   - `include_default_tags` – `bool`, default `true`.
+   - `default_tags` – `map(set(string))`, default `{}`.
+   - `additional_tags` – `map(set(string))`, default `{}`.
 
-variable "additional_tags" {
-  description = "Extra entity tags to apply on top of default_tags."
-  type        = map(set(string))
-  default     = {}
-}
+2. **Inside the module:**
+   - Introduce a `local.base_tags` that is:
+     - `var.default_tags` if `var.include_default_tags` is `true`,
+     - `{}` if `var.include_default_tags` is `false`.
+   - Introduce `local.entity_tags = merge(local.base_tags, var.additional_tags)`.
+   - Update `newrelic_entity_tags` to iterate over `local.entity_tags` instead of `var.entity_tags`.
 
-> Note: I added default_tags as a separate variable – the module itself can’t see the caller’s local.tags, so we pass them in explicitly.
+3. **Outputs (optional but nice to keep):**
+   - `total_entities_tagged` – number of resources created.
+   - `tagged_entities` – map of GUID → `{ resource_id, applied_tags }`, where `applied_tags` is `local.entity_tags`.
 
+4. **Caller-side usage should look like:**
+   - Caller defines:
+     - `local.default_tags` (AWS-style tags from the tagging standard).
+     - `local.additional_entity_tags` (New Relic–specific extras).
+     - `local.guids_to_tag`.
+   - Then calls:
+     ```hcl
+     module "newrelic_entity_tags" {
+       source             = "../modules/newrelic-entitytags"
+       guids_to_tag       = local.guids_to_tag
+       include_default_tags = true    # or false
+       default_tags         = local.default_tags
+       additional_tags      = local.additional_entity_tags
+     }
+     ```
 
+### What I need from you
 
-
----
-
-main.tf
-
-terraform {
-  required_providers {
-    newrelic = {
-      source  = "newrelic/newrelic"
-      version = "~> 3.25"
-    }
-  }
-}
-
-locals {
-  # Decide which base tags to start from
-  base_tags = var.include_default_tags ? var.default_tags : {}
-
-  # Final tag set used for newrelic_entity_tags
-  entity_tags = merge(
-    base_tags,
-    var.additional_tags,
-  )
-}
-
-resource "newrelic_entity_tags" "entity_tags" {
-  for_each = var.guids_to_tag
-  guid     = each.value
-
-  dynamic "tag" {
-    for_each = local.entity_tags
-    content {
-      key    = tag.key
-      values = tolist(tag.value) # tag.value is a set(string)
-    }
-  }
-}
-
-outputs.tf (your existing idea still works)
-
-output "total_entities_tagged" {
-  description = "Total number of entities tagged"
-  value       = length(newrelic_entity_tags.entity_tags)
-}
-
-output "tagged_entities" {
-  description = "Map of GUIDs and their applied tags + resource ID"
-  value = {
-    for guid, res in newrelic_entity_tags.entity_tags :
-    guid => {
-      resource_id = res.id
-      # Just echo back what we applied
-      applied_tags = local.entity_tags
-    }
-  }
-}
-
-
----
-
-3. Updated usage in the consumer repo
-
-This replaces the code you showed in the screenshot.
-
-locals {
-  # 1) Default / AWS-style tags (from the tagging standard doc)
-  default_tags = {
-    Environment    = toset(["Test"])
-    Layer          = toset(["900"])
-    Terraform      = toset(["True"])
-    Project        = toset(["Test"])
-    Repo           = toset(["https://gitlab.xm.com/rackspace/xm/..."])
-    Owner          = toset(["SRE"])
-    Team           = toset(["SRE"])
-    BusinessStream = toset(["Funding"])
-    Brand          = toset(["XM"])
-  }
-
-  # 2) Extra / New Relic–specific tags (optional)
-  additional_entity_tags = {
-    newrelicAccount = toset(["test_account"])
-    # If you want multiple values:
-    # Environment = toset(["Production", "Staging"])
-  }
-
-  guids_to_tag = toset([
-    "NZIwNTMXMxFWFR8U0VSVk1DRV9MRVZFTHWzNzA3NZY",
-    "NZIwNTMXMxBUE180VBQTElDQVRJT058NDUyODE5NZYy",
-    "NZIwNTMXMxFWFR8U0VSVk1DRV9MRVZFTHWzNzU5MTc",
-  ])
-}
-
-module "newrelic_entity_tags" {
-  source = "../modules/newrelic-entitytags"
-
-  guids_to_tag        = local.guids_to_tag
-  include_default_tags = true      # or false if you want *only* additional tags
-  default_tags         = local.default_tags
-  additional_tags      = local.additional_entity_tags
-}
-
+1. Rewrite the module (`variables.tf`, `main.tf`, `outputs.tf`) from the original design to the new one described above.
+2. Make sure the code is valid HCL, using `map(set(string))` for tags, and explain any important design choices briefly in comments.
+3. Keep the behaviour backwards-compatible where possible, but prioritize the new API shape: `include_default_tags`, `default_tags`, `additional_tags`.
