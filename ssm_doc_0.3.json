@@ -1,0 +1,283 @@
+{
+  "schemaVersion": "0.3",
+  "description": "Change CloudWatch Agent configuration (install if missing). Uses Automation with Python 3.11 gating, robust status checking, and optimized post-install verification.",
+  "assumeRole": "{{AutomationAssumeRole}}",
+  "parameters": {
+    "InstanceId": {
+      "type": "String",
+      "description": "The ID of the instance to configure."
+    },
+    "AutomationAssumeRole": {
+      "type": "String",
+      "description": "(Optional) The ARN of the role that allows Automation to perform the actions on your behalf.",
+      "default": ""
+    },
+    "mode": {
+      "type": "String",
+      "allowedValues": [
+        "ec2"
+      ],
+      "default": "ec2",
+      "description": "Controls platform-specific behavior."
+    },
+    "optionalRestart": {
+      "type": "String",
+      "allowedValues": [
+        "yes",
+        "no"
+      ],
+      "default": "yes",
+      "description": "Restart agent after config?"
+    },
+    "installAgentIfMissing": {
+      "type": "String",
+      "allowedValues": [
+        "yes",
+        "no"
+      ],
+      "default": "no",
+      "description": "Install agent if not present?"
+    },
+    "configurationSource": {
+      "type": "String",
+      "allowedValues": [
+        "s3",
+        "ssm"
+      ],
+      "default": "s3",
+      "description": "Configuration source."
+    },
+    "configurationLocation": {
+      "type": "String",
+      "default": "",
+      "description": "S3 URI or Parameter Store name."
+    }
+  },
+  "mainSteps": [
+    {
+      "name": "GetAgentStatusAndPlatform",
+      "action": "aws:executeScript",
+      "inputs": {
+        "Runtime": "python3.11",
+        "Handler": "script_handler",
+        "InputPayload": {
+          "InstanceId": "{{InstanceId}}"
+        },
+        "Script": "import boto3\nimport time\nimport botocore\n\ndef script_handler(events, context):\n    ssm = boto3.client('ssm')\n    instance_id = events['InstanceId']\n    \n    # 1. Get Platform Type (Strict: Must be Managed and Online)\n    try:\n        info = ssm.describe_instance_information(InstanceInformationFilterList=[{'key':'InstanceIds','valueSet':[instance_id]}])\n        if not info['InstanceInformationList']:\n             raise ValueError(f'Instance {instance_id} not found in SSM managed inventory. Ensure SSM Agent is installed.')\n        \n        instance_info = info['InstanceInformationList'][0]\n        ping_status = instance_info.get('PingStatus')\n        platform_type = instance_info['PlatformType'] # Linux or Windows\n        \n        print(f'Instance Details: PingStatus={ping_status}, PlatformType={platform_type}')\n        \n        if ping_status != 'Online':\n             raise ValueError(f'Instance {instance_id} is not Online (PingStatus={ping_status}). Cannot execute commands.')\n    except Exception as e:\n        print(f'Error getting platform: {e}')\n        raise\n\n    # 2. Check Agent Status\n    if platform_type == 'Windows':\n        cmd = \"if (Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) { Write-Output 'Installed' } else { Write-Output 'Missing' }\"\n        doc_name = 'AWS-RunPowerShellScript'\n    else:\n        # Linux: Use -x to check if executable exists\n        cmd = \"if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then printf 'Installed'; else printf 'Missing'; fi\"\n        doc_name = 'AWS-RunShellScript'\n\n    print(f'Checking agent on {platform_type} instance {instance_id}...')\n    \n    try:\n        send_response = ssm.send_command(\n            InstanceIds=[instance_id],\n            DocumentName=doc_name,\n            Parameters={'commands': [cmd]},\n            TimeoutSeconds=60\n        )\n        command_id = send_response['Command']['CommandId']\n    except Exception as e:\n         print(f'Failed to send command: {e}')\n         raise\n    \n    # Poll for result\n    status = 'Unknown'\n    for i in range(30):\n        time.sleep(2)\n        try:\n            invocation = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)\n            inv_status = invocation['Status']\n            \n            if inv_status in ['Success', 'Failed', 'Cancelled', 'TimedOut']:\n                if inv_status != 'Success':\n                     error_content = invocation.get('StandardErrorContent', '')\n                     output_content = invocation.get('StandardOutputContent', '')\n                     status_details = invocation.get('StatusDetails', '')\n                     raise RuntimeError(f'Command failed with status: {inv_status}. Details: {status_details}. Stdout: {output_content}. Stderr: {error_content}')\n                \n                output = invocation['StandardOutputContent'].strip()\n                if output == 'Installed':\n                    status = 'Installed'\n                elif output == 'Missing':\n                    status = 'Missing'\n                else:\n                    raise ValueError(f'Unexpected output from agent check: {output}')\n                break\n        except ssm.exceptions.InvocationDoesNotExist:\n            continue\n        except botocore.exceptions.ClientError as e:\n            if e.response['Error']['Code'] == 'ThrottlingException':\n                time.sleep(1)\n                continue\n            raise\n    else:\n         raise TimeoutError('Timed out waiting for agent check command')\n\n    if status == 'Unknown':\n        raise RuntimeError('Failed to determine Agent Status (Unknown)')\n\n    return {'Platform': platform_type, 'Status': status}"
+      },
+      "outputs": [
+        {
+          "Name": "Platform",
+          "Selector": "$.Payload.Platform",
+          "Type": "String"
+        },
+        {
+          "Name": "Status",
+          "Selector": "$.Payload.Status",
+          "Type": "String"
+        }
+      ]
+    },
+    {
+      "name": "DecideOnInstall",
+      "action": "aws:branch",
+      "inputs": {
+        "Choices": [
+          {
+            "NextStep": "InstallCloudWatchAgent",
+            "And": [
+                {
+                    "Variable": "{{GetAgentStatusAndPlatform.Status}}",
+                    "StringEquals": "Missing"
+                },
+                {
+                    "Variable": "{{installAgentIfMissing}}",
+                    "StringEquals": "yes"
+                }
+            ]
+          },
+          {
+            "NextStep": "FailIfMissingAndNoInstall",
+             "And": [
+                {
+                    "Variable": "{{GetAgentStatusAndPlatform.Status}}",
+                    "StringEquals": "Missing"
+                },
+                {
+                    "Variable": "{{installAgentIfMissing}}",
+                    "StringEquals": "no"
+                }
+            ]
+          }
+        ],
+        "Default": "ConfigureDecision"
+      }
+    },
+    {
+      "name": "FailIfMissingAndNoInstall",
+      "action": "aws:executeScript",
+      "inputs": {
+        "Runtime": "python3.11",
+        "Handler": "script_handler",
+        "Script": "import sys\ndef script_handler(events, context):\n    print(\"Agent is missing and installAgentIfMissing is set to 'no'. Aborting to avoid attempting configuration without an installed agent.\")\n    sys.exit(1)"
+      },
+      "isEnd": true
+    },
+    {
+      "name": "InstallCloudWatchAgent",
+      "action": "aws:configurePackage",
+      "inputs": {
+        "InstanceIds": [
+            "{{InstanceId}}"
+        ],
+        "name": "AmazonCloudWatchAgent",
+        "action": "Install"
+      }
+    },
+    {
+      "name": "VerifyInstallation",
+      "action": "aws:executeScript",
+      "inputs": {
+        "Runtime": "python3.11",
+        "Handler": "script_handler",
+        "InputPayload": {
+          "InstanceId": "{{InstanceId}}"
+        },
+        "Script": "import boto3\nimport time\nimport botocore\n\ndef script_handler(events, context):\n    ssm = boto3.client('ssm')\n    instance_id = events['InstanceId']\n    \n    # Re-fetch Platform for correctness/isolation with PingStatus check\n    try:\n        info = ssm.describe_instance_information(InstanceInformationFilterList=[{'key':'InstanceIds','valueSet':[instance_id]}])\n        if not info['InstanceInformationList']:\n             raise ValueError(f'Instance {instance_id} lost from SSM managed inventory during execution.')\n        \n        instance_info = info['InstanceInformationList'][0]\n        ping_status = instance_info.get('PingStatus')\n        if ping_status != 'Online':\n             raise ValueError(f'Instance {instance_id} went offline (PingStatus={ping_status}) during verification.')\n\n        platform_type = instance_info['PlatformType']\n    except Exception as e:\n        print(f'Error getting platform: {e}')\n        raise\n\n    # Prepare post-install check command\n    if platform_type == 'Windows':\n        cmd = \"if (Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) { Write-Output 'Installed' } else { Write-Output 'Missing' }\"\n        doc_name = 'AWS-RunPowerShellScript'\n    else:\n        cmd = \"if [ -x /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl ]; then printf 'Installed'; else printf 'Missing'; fi\"\n        doc_name = 'AWS-RunShellScript'\n\n    print(f'Verifying installation on {platform_type} instance {instance_id}...')\n    \n    # Poll logic: Max 10 attempts * (20s sleep + execution time) ~ 3-4 mins coverage\n    # We send a NEW command every loop iteration to ensure fresh state\n    for attempt in range(10):\n        try:\n            send_response = ssm.send_command(\n                InstanceIds=[instance_id],\n                DocumentName=doc_name,\n                Parameters={'commands': [cmd]},\n                TimeoutSeconds=60\n            )\n            command_id = send_response['Command']['CommandId']\n            \n            # Inner loop: wait for specific command to finish\n            for i in range(15):\n                time.sleep(2)\n                try:\n                    invocation = ssm.get_command_invocation(CommandId=command_id, InstanceId=instance_id)\n                    inv_status = invocation['Status']\n                    if inv_status in ['Success', 'Failed', 'Cancelled', 'TimedOut']:\n                        # LOGGING: Check output even if Success, or error if failed\n                        output_content = invocation.get('StandardOutputContent', '').strip()\n                        error_content = invocation.get('StandardErrorContent', '')\n\n                        if inv_status == 'Success' and output_content == 'Installed':\n                             print('Agent successfully verified as Installed.')\n                             return {'Status': 'Installed'}\n                        \n                        # If we get here, it wasn't a clean success. Log details before retrying.\n                        print(f'Attempt {attempt+1} result: Status={inv_status}, Output={output_content}, Error={error_content}')\n                        break\n                except ssm.exceptions.InvocationDoesNotExist:\n                    continue\n                except botocore.exceptions.ClientError as e:\n                     if e.response['Error']['Code'] == 'ThrottlingException':\n                         time.sleep(1)\n                         continue\n                     raise\n            \n            # If we are here, command failed or agent was 'Missing'. Wait before next check.\n            print(f'Verification incomplete. Waiting 20s...')\n            time.sleep(20)\n\n        except Exception as e:\n            print(f'Check attempt error: {e}')\n            time.sleep(10)\n            \n    raise RuntimeError('CloudWatch Agent not found after installation verification period.')"
+      }
+    },
+    {
+        "name": "ConfigureDecision",
+        "action": "aws:branch",
+        "inputs": {
+            "Choices": [
+                {
+                    "NextStep": "ConfigureWindows",
+                    "Variable": "{{GetAgentStatusAndPlatform.Platform}}",
+                    "StringEquals": "Windows"
+                },
+                {
+                    "NextStep": "ConfigureLinux",
+                    "Variable": "{{GetAgentStatusAndPlatform.Platform}}",
+                    "StringEquals": "Linux"
+                }
+            ],
+            "Default": "FailUnknownPlatform"
+        }
+    },
+    {
+      "name": "FailUnknownPlatform",
+      "action": "aws:executeScript",
+      "inputs": {
+        "Runtime": "python3.11",
+        "Handler": "script_handler",
+        "Script": "import sys\ndef script_handler(events, context):\n    print(\"Unknown Platform detected. Execution cannot continue.\")\n    sys.exit(1)"
+      },
+      "isEnd": true
+    },
+    {
+      "name": "ConfigureLinux",
+      "action": "aws:runCommand",
+      "inputs": {
+        "DocumentName": "AWS-RunShellScript",
+        "InstanceIds": [
+          "{{InstanceId}}"
+        ],
+        "Parameters": {
+          "commands": [
+            "#!/bin/bash",
+            "set -euo pipefail",
+            "",
+            "if [ -z \"{{configurationLocation}}\" ]; then",
+            "  echo \"Error: configurationLocation is required.\"",
+            "  exit 1",
+            "fi",
+            "",
+            "if [ \"{{configurationSource}}\" = \"s3\" ] && [[ \"{{configurationLocation}}\" != s3://* ]]; then",
+            "  echo \"Error: configurationLocation must start with s3:// when source is s3.\"",
+            "  exit 1",
+            "fi",
+            "",
+            "ctl=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl",
+            "if [ ! -x \"$ctl\" ]; then",
+            "  echo \"Error: CloudWatch agent ctl not found at $ctl\"",
+            "  exit 1",
+            "fi",
+            "",
+            "src=\"{{configurationSource}}\"",
+            "if [ \"$src\" = \"s3\" ]; then",
+            "  if ! command -v aws &> /dev/null; then",
+            "     echo \"Error: AWS CLI is required for 's3' configuration source.\"",
+            "     exit 1",
+            "  fi",
+            "  aws s3 cp \"{{configurationLocation}}\" /opt/aws/amazon-cloudwatch-agent/bin/s3_config.json",
+            "  conf=\"file:/opt/aws/amazon-cloudwatch-agent/bin/s3_config.json\"",
+            "else",
+            "  conf=\"ssm:{{configurationLocation}}\"",
+            "fi",
+            "",
+            "action=fetch-config",
+            "",
+            "if [ \"{{optionalRestart}}\" = \"yes\" ]; then",
+            "  echo \"Running fetch-config with restart...\"",
+            "  $ctl -a $action -m {{mode}} -c \"$conf\" -s",
+            "else",
+            "  echo \"Running fetch-config without restart...\"",
+            "  $ctl -a $action -m {{mode}} -c \"$conf\"",
+            "fi",
+            "",
+            "echo \"Agent status:\"",
+            "$ctl -m ec2 -a status"
+          ]
+        }
+      },
+      "isEnd": true
+    },
+    {
+      "name": "ConfigureWindows",
+      "action": "aws:runCommand",
+      "inputs": {
+        "DocumentName": "AWS-RunPowerShellScript",
+        "InstanceIds": [
+          "{{InstanceId}}"
+        ],
+        "Parameters": {
+          "commands": [
+            "Set-StrictMode -Version 2.0",
+            "$ErrorActionPreference = 'Stop'",
+            "",
+            "if ([string]::IsNullOrWhiteSpace('{{configurationLocation}}')) {",
+            "    Write-Error 'Error: configurationLocation is required.'",
+            "    exit 1",
+            "}",
+            "",
+            "if ('{{configurationSource}}' -eq 's3' -and -not '{{configurationLocation}}'.StartsWith('s3://')) {",
+            "    Write-Error 'Error: configurationLocation must start with s3:// when source is s3.'",
+            "    exit 1",
+            "}",
+            "",
+            "$ctl = \"$Env:ProgramFiles\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1\"",
+            "if (!(Test-Path $ctl)) { Write-Error \"ctl not found: $ctl\"; exit 1 }",
+            "",
+            "if (\"{{configurationSource}}\" -eq \"ssm\") {",
+            "  $CWConfig = \"ssm:{{configurationLocation}}\"",
+            "} else {",
+            "  if (!(Get-Command aws -ErrorAction SilentlyContinue)) { Write-Error 'AWS CLI missing'; exit 1 }",
+            "  $LocalPath = \"$Env:ProgramFiles\\Amazon\\AmazonCloudWatchAgent\\s3_config.json\"",
+            "  aws s3 cp \"{{configurationLocation}}\" $LocalPath",
+            "  $CWConfig = \"file:$LocalPath\"",
+            "}",
+            "",
+            "$Params = @('-a','fetch-config','-m','{{mode}}','-c',$CWConfig)",
+            "if (\"{{optionalRestart}}\" -eq \"yes\") { $Params += '-s' }",
+            "",
+            "Write-Output (\"Running: & {0} {1}\" -f $ctl, ($Params -join ' '))",
+            "& $ctl $Params",
+            "& $ctl -m ec2 -a status"
+          ]
+        }
+      },
+      "isEnd": true
+    }
+  ]
+}

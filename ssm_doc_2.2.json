@@ -1,0 +1,187 @@
+{
+  "schemaVersion": "2.2",
+  "description": "Change CloudWatch Agent configuration (install/upgrade allowed). Command document (2.2) using aws:configurePackage with simple pre-checks.",
+  "parameters": {
+    "mode": {
+      "type": "String",
+      "allowedValues": ["ec2"],
+      "default": "ec2",
+      "description": "Controls platform-specific behavior."
+    },
+    "optionalRestart": {
+      "type": "String",
+      "allowedValues": ["yes", "no"],
+      "default": "yes",
+      "description": "Restart agent after applying config?"
+    },
+    "installAgentIfMissing": {
+      "type": "String",
+      "allowedValues": ["yes", "no"],
+      "default": "no",
+      "description": "If yes, install (or upgrade) agent. If no, fail if agent is missing."
+    },
+    "configurationSource": {
+      "type": "String",
+      "allowedValues": ["s3", "ssm"],
+      "default": "s3",
+      "description": "Where the config comes from."
+    },
+    "configurationLocation": {
+      "type": "String",
+      "default": "",
+      "description": "S3 URI (s3://bucket/key) or Parameter Store name (when configurationSource=ssm).",
+      "allowedPattern": "[a-zA-Z0-9_\\-\\.:/+=@]*"
+    }
+  },
+  "mainSteps": [
+    {
+      "name": "Linux_CheckAndGate",
+      "action": "aws:runShellScript",
+      "precondition": {
+        "StringEquals": [
+          "platformType",
+          "Linux"
+        ]
+      },
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          "",
+          "# Check if Agent is installed (Service, Package, or Binary)",
+          "is_installed=0",
+          "ctl=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl",
+          "if [ -x \"$ctl\" ]; then is_installed=1; fi",
+          "if systemctl is-active amazon-cloudwatch-agent >/dev/null 2>&1; then is_installed=1; fi",
+          "if rpm -q amazon-cloudwatch-agent >/dev/null 2>&1; then is_installed=1; fi",
+          "if dpkg -s amazon-cloudwatch-agent >/dev/null 2>&1; then is_installed=1; fi",
+          "",
+          "# If NOT installed AND installAgentIfMissing is NO, Fail.",
+          "if [ $is_installed -eq 0 ] && [ \"{{installAgentIfMissing}}\" != \"yes\" ]; then",
+          "  echo \"Error: CloudWatch Agent check failed. Agent is missing and installAgentIfMissing=no.\"",
+          "  exit 1",
+          "fi",
+          "",
+          "echo \"Pre-check passed. Proceeding to Install/Configure.\"",
+          "exit 0"
+        ]
+      }
+    },
+    {
+      "name": "Windows_CheckAndGate",
+      "action": "aws:runPowerShellScript",
+      "precondition": {
+        "StringEquals": [
+          "platformType",
+          "Windows"
+        ]
+      },
+      "inputs": {
+        "runCommand": [
+          "Set-StrictMode -Version 2.0",
+          "$ErrorActionPreference = 'Stop'",
+          "$ctl = \"$Env:ProgramFiles\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1\"",
+          "",
+          "if ((Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $ctl)) {",
+          "    Write-Output 'Agent found.'",
+          "    exit 0",
+          "}",
+          "",
+          "if ('{{installAgentIfMissing}}' -ne 'yes') {",
+          "    Write-Error 'Error: CloudWatch Agent check failed. Agent is missing and installAgentIfMissing=no.'",
+          "    exit 1",
+          "}",
+          "",
+          "Write-Output 'Pre-check passed. Proceeding to Install/Configure.'",
+          "exit 0"
+        ]
+      }
+    },
+    {
+      "name": "InstallCloudWatchAgent",
+      "action": "aws:configurePackage",
+      "inputs": {
+        "name": "AmazonCloudWatchAgent",
+        "action": "Install",
+        "version": "latest"
+      }
+    },
+    {
+      "name": "Linux_Configure",
+      "action": "aws:runShellScript",
+      "precondition": {
+        "StringEquals": [
+          "platformType",
+          "Linux"
+        ]
+      },
+      "inputs": {
+        "runCommand": [
+          "#!/bin/bash",
+          "set -euo pipefail",
+          "",
+          "if [ -z \"{{configurationLocation}}\" ]; then echo \"Error: configurationLocation required.\"; exit 1; fi",
+          "if [ \"{{configurationSource}}\" = \"s3\" ] && [[ \"{{configurationLocation}}\" != s3://* ]]; then echo \"Error: s3 URI required.\"; exit 1; fi",
+          "",
+          "ctl=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl",
+          "if [ ! -x \"$ctl\" ]; then echo \"Error: Agent ctl not found (Install failed?).\"; exit 1; fi",
+          "",
+          "src=\"{{configurationSource}}\"",
+          "if [ \"$src\" = \"s3\" ]; then",
+          "  if ! command -v aws >/dev/null 2>&1; then echo \"Error: AWS CLI missing.\"; exit 1; fi",
+          "  aws s3 cp \"{{configurationLocation}}\" /opt/aws/amazon-cloudwatch-agent/bin/s3_config.json",
+          "  conf=\"file:/opt/aws/amazon-cloudwatch-agent/bin/s3_config.json\"",
+          "else",
+          "  conf=\"ssm:{{configurationLocation}}\"",
+          "fi",
+          "",
+          "action=fetch-config",
+          "if [ \"{{optionalRestart}}\" = \"yes\" ]; then",
+          "  $ctl -a $action -m {{mode}} -c \"$conf\" -s",
+          "else",
+          "  $ctl -a $action -m {{mode}} -c \"$conf\"",
+          "fi",
+          "",
+          "$ctl -m ec2 -a status"
+        ]
+      }
+    },
+    {
+      "name": "Windows_Configure",
+      "action": "aws:runPowerShellScript",
+      "precondition": {
+        "StringEquals": [
+          "platformType",
+          "Windows"
+        ]
+      },
+      "inputs": {
+        "runCommand": [
+          "Set-StrictMode -Version 2.0",
+          "$ErrorActionPreference = 'Stop'",
+          "",
+          "if ([string]::IsNullOrWhiteSpace('{{configurationLocation}}')) { Write-Error 'Error: configurationLocation required.'; exit 1 }",
+          "if ('{{configurationSource}}' -eq 's3' -and -not '{{configurationLocation}}'.StartsWith('s3://')) { Write-Error 'Error: s3 URI required.'; exit 1 }",
+          "",
+          "$ctl = \"$Env:ProgramFiles\\Amazon\\AmazonCloudWatchAgent\\amazon-cloudwatch-agent-ctl.ps1\"",
+          "if (!(Test-Path $ctl)) { Write-Error \"ctl not found: $ctl\"; exit 1 }",
+          "",
+          "if ('{{configurationSource}}' -eq 'ssm') {",
+          "  $CWConfig = \"ssm:{{configurationLocation}}\"",
+          "} else {",
+          "  if (!(Get-Command aws -ErrorAction SilentlyContinue)) { Write-Error 'AWS CLI missing'; exit 1 }",
+          "  $LocalPath = \"$Env:ProgramFiles\\Amazon\\AmazonCloudWatchAgent\\s3_config.json\"",
+          "  aws s3 cp \"{{configurationLocation}}\" $LocalPath",
+          "  $CWConfig = \"file:$LocalPath\"",
+          "}",
+          "",
+          "$Params = @('-a','fetch-config','-m','{{mode}}','-c',$CWConfig)",
+          "if ('{{optionalRestart}}' -eq 'yes') { $Params += '-s' }",
+          "",
+          "& $ctl $Params",
+          "& $ctl -m ec2 -a status"
+        ]
+      }
+    }
+  ]
+}
