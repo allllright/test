@@ -125,13 +125,16 @@
     },
     {
       "name": "InstallCloudWatchAgent",
-      "action": "aws:configurePackage",
+      "action": "aws:runCommand",
       "inputs": {
+        "DocumentName": "AWS-ConfigureAWSPackage",
         "InstanceIds": [
-            "{{InstanceId}}"
+          "{{InstanceId}}"
         ],
-        "name": "AmazonCloudWatchAgent",
-        "action": "Install"
+        "Parameters": {
+          "name": "AmazonCloudWatchAgent",
+          "action": "Install"
+        }
       }
     },
     {
