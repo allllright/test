@@ -1,0 +1,143 @@
+<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="29.3.3">
+  <diagram id="SSM_Doc_2_2_Flow" name="SSM Document 2.2 Flow">
+    <mxGraphModel dx="1470" dy="796" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="2" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Start SSM Document" vertex="1">
+          <mxGeometry height="60" width="120" x="365" y="20" as="geometry" />
+        </mxCell>
+        <mxCell id="3" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Check Platform Type" vertex="1">
+          <mxGeometry height="80" width="140" x="355" y="120" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_2_3" edge="1" parent="1" source="2" target="3">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Linux: Check Binary Exists&#xa;(/opt/aws/.../ctl)" vertex="1">
+          <mxGeometry height="60" width="160" x="160" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_3_4" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="4" value="Linux">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Found?" vertex="1">
+          <mxGeometry height="80" width="100" x="190" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_4_5" edge="1" parent="1" source="4" target="5">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="installAgentIfMissing&#xa;== &#39;yes&#39;?" vertex="1">
+          <mxGeometry height="80" width="140" x="40" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_5_6" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="6" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error: Abort" vertex="1">
+          <mxGeometry height="40" width="100" x="60" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_6_7" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="7" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Install Sequence:&#xa;1. Detect OS (Deb/RPM)&#xa;2. Download (wget/curl)&#xa;3. Install (dpkg/yum)&#xa;4. Verify Binary" vertex="1">
+          <mxGeometry height="80" width="180" x="190" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_6_8" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="8" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="110" y="440" />
+              <mxPoint x="280" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Configure:&#xa;1. Check Source (S3/SSM)&#xa;2. Exec: ctl fetch-config" vertex="1">
+          <mxGeometry height="60" width="180" x="190" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_5_9" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="9" value="Yes (Skip Install)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="420" y="380" />
+              <mxPoint x="420" y="560" />
+              <mxPoint x="280" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_8_9" edge="1" parent="1" source="8" target="9">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Verify Status&#xa;(ctl status | grep running)" vertex="1">
+          <mxGeometry height="50" width="180" x="190" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_9_10" edge="1" parent="1" source="9" target="10">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="End Success" vertex="1">
+          <mxGeometry height="50" width="100" x="230" y="770" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_10_11" edge="1" parent="1" source="10" target="11">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Windows: Check Service&#xa;OR ctl Exists" vertex="1">
+          <mxGeometry height="60" width="160" x="540" y="240" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_3_12" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="12" value="Windows">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Found?" vertex="1">
+          <mxGeometry height="80" width="100" x="570" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_12_13" edge="1" parent="1" source="12" target="13">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="installAgentIfMissing&#xa;== &#39;yes&#39;?" vertex="1">
+          <mxGeometry height="80" width="140" x="720" y="340" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_13_14" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="14" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error: Abort" vertex="1">
+          <mxGeometry height="40" width="100" x="740" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_14_15" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="15" value="No">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Install Sequence:&#xa;1. Download MSI&#xa;2. Install (msiexec)&#xa;3. Retry Loop (Wait for Service)" vertex="1">
+          <mxGeometry height="80" width="190" x="520" y="460" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_14_16" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="16" value="Yes">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="790" y="440" />
+              <mxPoint x="615" y="440" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Configure:&#xa;1. Check Source (S3/SSM)&#xa;2. Exec: ctl fetch-config" vertex="1">
+          <mxGeometry height="60" width="180" x="525" y="580" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_13_17" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="17" value="Yes (Skip Install)">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="470" y="380" />
+              <mxPoint x="470" y="560" />
+              <mxPoint x="615" y="560" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="edge_16_17" edge="1" parent="1" source="16" target="17">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Verify Status&#xa;(ctl status with Retry Loop)" vertex="1">
+          <mxGeometry height="50" width="180" x="525" y="680" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_17_18" edge="1" parent="1" source="17" target="18">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+        <mxCell id="19" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="End Success" vertex="1">
+          <mxGeometry height="50" width="100" x="565" y="770" as="geometry" />
+        </mxCell>
+        <mxCell id="edge_18_19" edge="1" parent="1" source="18" target="19">
+          <mxGeometry relative="1" as="geometry" />
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
