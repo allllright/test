@@ -1,143 +1,274 @@
-<mxfile host="app.diagrams.net" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36" version="29.3.3">
-  <diagram id="SSM_Doc_2_2_Flow" name="SSM Document 2.2 Flow">
-    <mxGraphModel dx="1470" dy="796" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
-      <root>
-        <mxCell id="0" />
-        <mxCell id="1" parent="0" />
-        <mxCell id="2" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Start SSM Document" vertex="1">
-          <mxGeometry height="60" width="120" x="365" y="20" as="geometry" />
-        </mxCell>
-        <mxCell id="3" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Check Platform Type" vertex="1">
-          <mxGeometry height="80" width="140" x="355" y="120" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_2_3" edge="1" parent="1" source="2" target="3">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="4" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Linux: Check Binary Exists&#xa;(/opt/aws/.../ctl)" vertex="1">
-          <mxGeometry height="60" width="160" x="160" y="240" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_3_4" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="4" value="Linux">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="5" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Found?" vertex="1">
-          <mxGeometry height="80" width="100" x="190" y="340" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_4_5" edge="1" parent="1" source="4" target="5">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="6" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="installAgentIfMissing&#xa;== &#39;yes&#39;?" vertex="1">
-          <mxGeometry height="80" width="140" x="40" y="340" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_5_6" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="6" value="No">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="7" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error: Abort" vertex="1">
-          <mxGeometry height="40" width="100" x="60" y="460" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_6_7" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="7" value="No">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="8" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Install Sequence:&#xa;1. Detect OS (Deb/RPM)&#xa;2. Download (wget/curl)&#xa;3. Install (dpkg/yum)&#xa;4. Verify Binary" vertex="1">
-          <mxGeometry height="80" width="180" x="190" y="460" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_6_8" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="8" value="Yes">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="110" y="440" />
-              <mxPoint x="280" y="440" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="9" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Configure:&#xa;1. Check Source (S3/SSM)&#xa;2. Exec: ctl fetch-config" vertex="1">
-          <mxGeometry height="60" width="180" x="190" y="580" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_5_9" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="9" value="Yes (Skip Install)">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="420" y="380" />
-              <mxPoint x="420" y="560" />
-              <mxPoint x="280" y="560" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="edge_8_9" edge="1" parent="1" source="8" target="9">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="10" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Verify Status&#xa;(ctl status | grep running)" vertex="1">
-          <mxGeometry height="50" width="180" x="190" y="680" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_9_10" edge="1" parent="1" source="9" target="10">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="11" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="End Success" vertex="1">
-          <mxGeometry height="50" width="100" x="230" y="770" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_10_11" edge="1" parent="1" source="10" target="11">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="12" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Windows: Check Service&#xa;OR ctl Exists" vertex="1">
-          <mxGeometry height="60" width="160" x="540" y="240" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_3_12" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;" target="12" value="Windows">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="13" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" value="Found?" vertex="1">
-          <mxGeometry height="80" width="100" x="570" y="340" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_12_13" edge="1" parent="1" source="12" target="13">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="14" parent="1" style="rhombus;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="installAgentIfMissing&#xa;== &#39;yes&#39;?" vertex="1">
-          <mxGeometry height="80" width="140" x="720" y="340" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_13_14" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="14" value="No">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="15" parent="1" style="rounded=0;whiteSpace=wrap;html=1;fillColor=#f8cecc;strokeColor=#b85450;" value="Error: Abort" vertex="1">
-          <mxGeometry height="40" width="100" x="740" y="460" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_14_15" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="15" value="No">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="16" parent="1" style="rounded=1;whiteSpace=wrap;html=1;" value="Install Sequence:&#xa;1. Download MSI&#xa;2. Install (msiexec)&#xa;3. Retry Loop (Wait for Service)" vertex="1">
-          <mxGeometry height="80" width="190" x="520" y="460" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_14_16" edge="1" parent="1" source="14" style="edgeStyle=orthogonalEdgeStyle;html=1;" target="16" value="Yes">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="790" y="440" />
-              <mxPoint x="615" y="440" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="17" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" value="Configure:&#xa;1. Check Source (S3/SSM)&#xa;2. Exec: ctl fetch-config" vertex="1">
-          <mxGeometry height="60" width="180" x="525" y="580" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_13_17" edge="1" parent="1" source="13" style="edgeStyle=orthogonalEdgeStyle;html=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="17" value="Yes (Skip Install)">
-          <mxGeometry relative="1" as="geometry">
-            <Array as="points">
-              <mxPoint x="470" y="380" />
-              <mxPoint x="470" y="560" />
-              <mxPoint x="615" y="560" />
-            </Array>
-          </mxGeometry>
-        </mxCell>
-        <mxCell id="edge_16_17" edge="1" parent="1" source="16" target="17">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="18" parent="1" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="Verify Status&#xa;(ctl status with Retry Loop)" vertex="1">
-          <mxGeometry height="50" width="180" x="525" y="680" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_17_18" edge="1" parent="1" source="17" target="18">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-        <mxCell id="19" parent="1" style="ellipse;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" value="End Success" vertex="1">
-          <mxGeometry height="50" width="100" x="565" y="770" as="geometry" />
-        </mxCell>
-        <mxCell id="edge_18_19" edge="1" parent="1" source="18" target="19">
-          <mxGeometry relative="1" as="geometry" />
-        </mxCell>
-      </root>
-    </mxGraphModel>
-  </diagram>
-</mxfile>
+---
+schemaVersion: '2.2'
+description: Change CloudWatch Agent configuration. Command document (2.2) with Single-Script per OS. Enforces 'No Upgrade' strictly. Features robust POSIX-compliant scripts.
+parameters:
+  mode:
+    type: String
+    allowedValues:
+      - ec2
+    default: ec2
+    description: Controls platform-specific default behavior such as whether to include EC2 metadata in metrics.
+  optionalRestart:
+    type: String
+    allowedValues:
+      - yes
+      - no
+    default: yes
+    description: Only for 'configure' related actions. If 'yes', restarts the agent to use the new configuration. Otherwise the new config will only apply on the next agent restart.
+  installAgentIfMissing:
+    type: String
+    allowedValues:
+      - yes
+      - no
+    default: no
+    description: If set to 'yes', installs the CloudWatch Agent if it is not already installed. If set to 'no', the document will fail if the agent is not installed.
+  configurationSource:
+    type: String
+    allowedValues:
+      - s3
+      - ssm
+    default: s3
+    description: Where the agent configuration comes from
+  configurationLocation:
+    type: String
+    default: ""
+    description: Full S3 URI or Parameter Store name (when configurationSource=ssm).
+    allowedPattern: "[a-zA-Z0-9_\\-\\.:/+=@]*"
+mainSteps:
+  - name: Linux_InstallAndConfigure
+    action: aws:runShellScript
+    precondition:
+      StringEquals:
+        - platformType
+        - Linux
+    inputs:
+      runCommand:
+        - |
+          #!/bin/sh
+          set -eu
+
+          # --- Configuration: Download Links ---
+          URL_RPM_AMD64='https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/amd64/latest/amazon-cloudwatch-agent.rpm'
+          URL_RPM_ARM64='https://s3.amazonaws.com/amazoncloudwatch-agent/amazon_linux/arm64/latest/amazon-cloudwatch-agent.rpm'
+          URL_DEB_AMD64='https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/amd64/latest/amazon-cloudwatch-agent.deb'
+          URL_DEB_ARM64='https://s3.amazonaws.com/amazoncloudwatch-agent/ubuntu/arm64/latest/amazon-cloudwatch-agent.deb'
+
+          ctl=/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl
+
+          # --- 1. Installation Check & Logic ---
+          is_installed=0
+          if [ -x "$ctl" ]; then is_installed=1; fi
+
+          if [ "$is_installed" -eq 1 ]; then
+            echo "CloudWatch Agent found (Binary at $ctl). Skipping install to prevent upgrade."
+          else
+            # Agent Missing. Check permission to install.
+            if [ "{{installAgentIfMissing}}" != "yes" ]; then
+              echo "Error: CloudWatch Agent binary missing ($ctl) and installAgentIfMissing=no. Aborting."
+              exit 1
+            fi
+
+            echo "CloudWatch Agent missing. Detecting OS and installing..."
+            arch=$(uname -m)
+            if [ "$arch" = "x86_64" ]; then
+              u_rpm=$URL_RPM_AMD64; u_deb=$URL_DEB_AMD64
+            elif [ "$arch" = "aarch64" ]; then
+              u_rpm=$URL_RPM_ARM64; u_deb=$URL_DEB_ARM64
+            else
+              echo "Error: Unsupported architecture: $arch"; exit 1
+            fi
+
+            # Robust Downloader Selection
+            d_cmd=""
+            if command -v wget >/dev/null 2>&1; then d_cmd="wget"; fi
+            if [ -z "$d_cmd" ] && command -v curl >/dev/null 2>&1; then d_cmd="curl"; fi
+            if [ -z "$d_cmd" ]; then echo "Error: Neither wget nor curl found."; exit 1; fi
+
+            # OS Detection
+            if [ -f /etc/debian_version ]; then
+              echo "Detected Debian/Ubuntu family. Downloading DEB..."
+              if [ "$d_cmd" = "wget" ]; then
+                 wget -q -O /tmp/cw-agent.deb "$u_deb"
+              else
+                 curl -f -s -L -o /tmp/cw-agent.deb "$u_deb"
+              fi
+              # Attempt install, fallback to dependency fix if needed
+              command -v dpkg >/dev/null 2>&1 || { echo "Error: dpkg not found"; exit 1; }
+              dpkg -i /tmp/cw-agent.deb || {
+                command -v apt-get >/dev/null 2>&1 || { echo "Error: apt-get missing for dependency fix"; exit 1; }
+                apt-get update
+                apt-get install -f -y
+                dpkg -i /tmp/cw-agent.deb
+              }
+              rm -f /tmp/cw-agent.deb
+            elif [ -f /etc/redhat-release ] || [ -f /etc/system-release ] || [ -f /etc/amazon-linux-release ]; then
+              echo "Detected RHEL/Amazon Linux/CentOS family. Downloading RPM..."
+              if [ "$d_cmd" = "wget" ]; then
+                 wget -q -O /tmp/cw-agent.rpm "$u_rpm"
+              else
+                 curl -f -s -L -o /tmp/cw-agent.rpm "$u_rpm"
+              fi
+              
+              if command -v yum >/dev/null 2>&1; then
+                yum install -y /tmp/cw-agent.rpm
+              elif command -v dnf >/dev/null 2>&1; then
+                dnf install -y /tmp/cw-agent.rpm
+              else
+                command -v rpm >/dev/null 2>&1 || { echo "Error: rpm not found"; exit 1; }
+                rpm -Uvh /tmp/cw-agent.rpm
+              fi
+              rm -f /tmp/cw-agent.rpm
+            else
+              echo "Error: Common OS release file not found. Cannot determine package type. Aborting."
+              exit 1
+            fi
+
+            # Immediate Post-Install Check
+            if [ ! -x "$ctl" ]; then
+              echo "Error: Install command finished but agent binary not found at $ctl."
+              exit 1
+            fi
+            echo "Install completed successfully."
+          fi
+
+          # --- 2. Configuration Logic ---
+          echo "Applying Configuration..."
+
+          # Input Validation
+          if [ -z "{{configurationLocation}}" ]; then echo "Error: configurationLocation required."; exit 1; fi
+
+          if [ "{{configurationSource}}" = "s3" ]; then
+            case "{{configurationLocation}}" in
+              s3://*) ;;
+              *) echo "Error: configurationLocation must start with s3:// when source is s3."; exit 1 ;;
+            esac
+          fi
+
+          # Prepare Config Source
+          src="{{configurationSource}}"
+          if [ "$src" = "s3" ]; then
+            if ! command -v aws >/dev/null 2>&1; then echo "Error: AWS CLI missing (Required for S3 source)."; exit 1; fi
+            aws s3 cp "{{configurationLocation}}" /opt/aws/amazon-cloudwatch-agent/bin/s3_config.json
+            conf="file:/opt/aws/amazon-cloudwatch-agent/bin/s3_config.json"
+          else
+            conf="ssm:{{configurationLocation}}"
+          fi
+
+          # Execute Fetch-Config
+          action=fetch-config
+          if [ "{{optionalRestart}}" = "yes" ]; then
+            echo "Running fetch-config with restart..."
+            $ctl -a $action -m "{{mode}}" -c "$conf" -s
+          else
+            echo "Running fetch-config without restart..."
+            $ctl -a $action -m "{{mode}}" -c "$conf"
+          fi
+
+          echo "Verifying agent status..."
+          if [ "{{optionalRestart}}" = "yes" ]; then
+             status=$($ctl -m ec2 -a status)
+             echo "$status"
+             echo "$status" | grep -qi "running" || { echo "Error: Agent not running."; exit 1; }
+          else
+             echo "optionalRestart=no (or no systemd). New config will apply on next agent restart."
+             $ctl -m ec2 -a status
+          fi
+  - name: Windows_InstallAndConfigure
+    action: aws:runPowerShellScript
+    precondition:
+      StringEquals:
+        - platformType
+        - Windows
+    inputs:
+      runCommand:
+        - |
+          Set-StrictMode -Version 2.0
+          $ErrorActionPreference = 'Stop'
+          $ProgressPreference = 'SilentlyContinue'
+          $ctl = "$Env:ProgramFiles\Amazon\AmazonCloudWatchAgent\amazon-cloudwatch-agent-ctl.ps1"
+
+          if ((Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $ctl)) {
+            Write-Output 'CloudWatch Agent found (Service or Ctl). Skipping install to prevent upgrade.'
+          } else {
+            if ("{{installAgentIfMissing}}" -ne 'yes') {
+              Write-Error 'Error: CloudWatch Agent missing and installAgentIfMissing=no. Aborting.'
+              exit 1
+            }
+
+            Write-Output 'CloudWatch Agent missing. Installs via MSI download...'
+            $msi = "$env:TEMP\amazon-cloudwatch-agent.msi"
+            $url = 'https://s3.amazonaws.com/amazoncloudwatch-agent/windows/amd64/latest/amazon-cloudwatch-agent.msi'
+
+            try {
+                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+                Invoke-WebRequest -Uri $url -OutFile $msi -UseBasicParsing
+                Start-Process msiexec.exe -ArgumentList @('/i', "`"$msi`"", '/qn') -Wait -NoNewWindow
+            } catch {
+                Write-Error "Failed to download or install MSI: $_"
+                exit 1
+            }
+
+            # Post-Install Check with Retry (Service lag)
+            $maxRetries = 3
+            $retryCount = 0
+            while ($retryCount -lt $maxRetries) {
+                if ((Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $ctl)) {
+                    Write-Output 'Install verified successfully.'
+                    break
+                }
+                Write-Output "Waiting for service registration (Attempt $($retryCount+1)/$maxRetries)..."
+                Start-Sleep -Seconds 5
+                $retryCount++
+            }
+
+            if (-not ((Get-Service AmazonCloudWatchAgent -ErrorAction SilentlyContinue) -or (Test-Path -LiteralPath $ctl))) {
+               Write-Error "Install completed but agent Service/Ctl not found after retries."
+               exit 1
+            }
+          }
+
+          # --- 2. Configuration Logic ---
+          Write-Output 'Applying Configuration...'
+
+          if ([string]::IsNullOrWhiteSpace("{{configurationLocation}}")) { Write-Error 'Error: configurationLocation required.'; exit 1 }
+          if ("{{configurationSource}}" -eq 's3' -and -not "{{configurationLocation}}".StartsWith('s3://')) { Write-Error 'Error: s3 URI required when source is s3.'; exit 1 }
+
+          if (!(Test-Path -LiteralPath $ctl)) { Write-Error "ctl not found at $ctl"; exit 1 }
+
+          if ("{{configurationSource}}" -eq 'ssm') {
+            $CWConfig = "ssm:{{configurationLocation}}"
+          } else {
+            if (!(Get-Command aws -ErrorAction SilentlyContinue)) { Write-Error 'Error: AWS CLI missing (Required for S3 source)'; exit 1 }
+            $LocalPath = "$Env:ProgramFiles\Amazon\AmazonCloudWatchAgent\s3_config.json"
+            aws s3 cp "{{configurationLocation}}" "$LocalPath"
+            if ($LASTEXITCODE -ne 0) { throw "AWS CLI s3 cp failed with exit code $LASTEXITCODE" }
+            $CWConfig = "file:$LocalPath"
+          }
+
+          if ("{{optionalRestart}}" -eq 'yes') {
+            Write-Output "Running: & `"$ctl`" -a fetch-config -m {{mode}} -c $CWConfig -s"
+            & "$ctl" -a fetch-config -m "{{mode}}" -c $CWConfig -s
+          } else {
+            Write-Output "Running: & `"$ctl`" -a fetch-config -m {{mode}} -c $CWConfig"
+            & "$ctl" -a fetch-config -m "{{mode}}" -c $CWConfig
+          }
+
+          if ("{{optionalRestart}}" -eq 'yes') {
+            $maxRetries = 3
+            $retryCount = 0
+            $started = $false
+            while ($retryCount -lt $maxRetries) {
+                $status = & "$ctl" -m ec2 -a status
+                if ($status -and ($status | Select-String "running" -Quiet)) {
+                    $started = $true
+                    break
+                }
+                Write-Output "Waiting for service to start (Attempt $($retryCount+1)/$maxRetries)..."
+                Start-Sleep -Seconds 5
+                $retryCount++
+            }
+            if (-not $started) { throw "Agent not running after restart (timeout)" }
+          } else {
+            Write-Output "optionalRestart=no. New config will apply on next agent restart."
+            & "$ctl" -m ec2 -a status
+          }
