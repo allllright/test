@@ -1,4 +1,5 @@
-fields strlen(@message) as msg_size
-| stats sum(msg_size) as approx_bytes by @log
-| sort approx_bytes desc
-| limit 10
+fields @timestamp, @log, @message
+| filter @message like /(?i)(error|fail|exception|timeout|panic)/
+| stats count(*) as error_count by @log
+| sort error_count desc
+| limit 20
