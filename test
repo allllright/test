@@ -1,4 +1,4 @@
-fields @timestamp, deliveryStreamARN, destination, errorCode, message
-| filter ispresent(errorCode) or message like /(?i)(error|fail|unsuccessful|throttl|timeout|exception)/
-| sort @timestamp desc
-| limit 100
+fields strlen(@message) as msg_size
+| stats sum(msg_size) as approx_bytes by @log
+| sort approx_bytes desc
+| limit 10
