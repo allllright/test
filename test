@@ -1,12 +1,4 @@
-fields @timestamp, eventName, userIdentity.type, userIdentity.arn, sourceIPAddress, awsRegion
-| filter eventSource = "monitoring.amazonaws.com"
-| filter eventName in [
-    "PutMetricAlarm",
-    "PutCompositeAlarm",
-    "DeleteAlarms",
-    "DisableAlarmActions",
-    "EnableAlarmActions",
-    "SetAlarmState"
-]
-| stats count(*) as changes by bin(5m), eventName, userIdentity.type, userIdentity.arn, sourceIPAddress, awsRegion
-| sort changes desc
+fields @timestamp, deliveryStreamARN, destination, errorCode, message
+| filter ispresent(errorCode) or message like /(?i)(error|fail|unsuccessful|throttl|timeout|exception)/
+| sort @timestamp desc
+| limit 100
