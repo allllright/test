@@ -1,36 +1,13 @@
-Please generate Terraform for AWS FIS EKS pod action prerequisites.
+Please analyze this Terraform repository and give me a structured walkthrough for onboarding.
 
-Context:
-- region: eu-west-1
-- EKS cluster name: eks-fis-poc
-- IAM role name: fis-experiment-role
-- use AWS managed policy AWSFaultInjectionSimulatorEKSAccess
-- create an EKS access entry for that IAM role
-- use Kubernetes username fis-experiment
+I want you to explain:
 
-Please generate:
-1. aws_iam_role for FIS
-2. trust policy for fis.amazonaws.com
-3. aws_iam_role_policy_attachment for AWSFaultInjectionSimulatorEKSAccess
-4. aws_eks_access_entry for cluster eks-fis-poc
-5. brief explanation for each resource
+1. what this repository is meant to deploy
+2. the purpose of each top-level folder and file
+3. what the numbered layer folders mean
+4. which folders are most important to read first
+5. how the Terraform code is organized across layers
+6. any likely deployment flow or dependency order between layers
 
-
-Generate an rbac.yaml for AWS FIS EKS pod actions based on the AWS official example.
-
-Use:
-- namespace: default
-- service account: fis-experiment-sa
-- kubernetes username: fis-experiment
-
-Include:
-- ServiceAccount
-- Role
-- RoleBinding
-
-Permissions should cover:
-- configmaps get/create/patch/delete
-- pods create/list/get/delete/deletecollection
-- pods/ephemeralcontainers update
-- pods/exec create
-- deployments get
+Please ground every conclusion in actual files and include the file paths you used.
+Please be explicit when something is an assumption rather than confirmed from code.
