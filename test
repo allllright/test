@@ -1,13 +1,129 @@
-Please analyze this Terraform repository and give me a structured walkthrough for onboarding.
+# AWS FIS EKS Pod Actions Research
 
-I want you to explain:
+## 1. Background
 
-1. what this repository is meant to deploy
-2. the purpose of each top-level folder and file
-3. what the numbered layer folders mean
-4. which folders are most important to read first
-5. how the Terraform code is organized across layers
-6. any likely deployment flow or dependency order between layers
+We currently have existing chaos experiments, but we do not yet have standard EKS pod-level experiments. This research evaluates how AWS FIS EKS pod actions can be added as new experiment types to the existing chaos experiment catalogue.
 
-Please ground every conclusion in actual files and include the file paths you used.
-Please be explicit when something is an assumption rather than confirmed from code.
+This task is separate from the chaos framework / developer self-service task. The purpose here is not to design a Postman-based trigger flow for developers, but to identify and define the pod action experiments that SRE can add and operate safely.
+
+## 2. Objective
+
+Evaluate supported AWS FIS EKS pod actions, required parameters, IAM/EKS/RBAC prerequisites, limitations, risks, observability requirements, and recommended rollout plan.
+
+## 3. Scope
+
+### In scope
+
+- AWS FIS EKS pod actions
+- Pod-level chaos experiment templates
+- Required parameters
+- IAM role and EKS access requirements
+- Kubernetes service account and RBAC
+- Pod targeting strategy
+- Multi-container pod and Istio sidecar considerations
+- Observability evidence
+- POC recommendation
+
+### Out of scope
+
+- Developer self-service through Postman
+- API design for developers to trigger experiments
+- Full chaos framework onboarding
+- Production rollout
+- Application remediation work
+
+## 4. Supported AWS FIS Pod Actions
+
+| Action | Purpose | Initial priority | Risk |
+|---|---|---|---|
+| aws:eks:pod-delete | Delete target pods | High | Medium |
+| aws:eks:pod-cpu-stress | Inject CPU pressure | High | Medium |
+| aws:eks:pod-memory-stress | Inject memory pressure | Medium | Medium |
+| aws:eks:pod-io-stress | Inject IO pressure | Medium | Medium |
+| aws:eks:pod-network-latency | Add latency | Later | High |
+| aws:eks:pod-network-packet-loss | Add packet loss | Later | High |
+| aws:eks:pod-network-blackhole-port | Drop traffic on port/protocol | Later | High |
+
+## 5. Proposed Rollout
+
+Phase 1:
+Start with pod-delete in a lower environment.
+
+Phase 2:
+Add CPU and memory stress after validating permissions and observability.
+
+Phase 3:
+Add network actions only after validating privileged policy, Istio sidecar behaviour, and InfoSec approval.
+
+## 6. Permission Model
+
+The experiment requires:
+
+- AWS FIS experiment role
+- EKS cluster access through access entries or aws-auth
+- Kubernetes service account
+- Kubernetes Role and RoleBinding
+- Permission to list/get/delete pods
+- Permission to update pods/ephemeralcontainers for non-delete actions
+- Permission to create/patch/delete configmaps if required by FIS orchestration
+
+## 7. Target Selection
+
+Targets should be selected by cluster, namespace, label selector, and selection mode.
+
+Before running an experiment, the selector must be validated manually to make sure it only matches the intended pods.
+
+## 8. Multi-container Pod and Istio Considerations
+
+Many workloads may include both an application container and an Istio sidecar. Because FIS pod actions target pods and may use ephemeral containers for injection, each action must be validated against multi-container pods.
+
+Special care is needed for network actions because the observed impact may involve the application container, the sidecar proxy, or the shared pod network namespace.
+
+## 9. Observability Requirements
+
+Each experiment should capture:
+
+- experiment start and end time
+- target pod and namespace
+- selected action and parameters
+- Kubernetes events
+- pod recreation or recovery time
+- application readiness time
+- New Relic metrics
+- ELK logs
+- CloudWatch/EKS metrics if available
+- alerts triggered
+- unexpected impact
+
+## 10. Recommended First POC
+
+Recommended first POC: aws:eks:pod-delete
+
+Reason:
+
+- easiest to understand
+- easiest to validate
+- useful for pod recreation and readiness testing
+- lower complexity than network actions
+- does not require validating privileged network manipulation first
+
+## 11. Open Questions
+
+- Which lower environment should be used for the first POC?
+- Should the service account be namespace-scoped per target namespace?
+- Should pod action experiments use one shared service account or one per namespace?
+- Which RBAC permissions will InfoSec approve?
+- Can network actions be approved if they require privileged policy?
+- How do pod actions behave with Istio sidecars in our environment?
+- What monitoring dashboard should be used as standard evidence?
+- Which pod actions should be added to the existing experiment catalogue first?
+
+## 12. Recommendation
+
+Start with a small set of pod actions:
+
+1. pod-delete
+2. cpu-stress
+3. memory-stress
+
+Treat network latency, packet loss, and blackhole-port as later-stage experiments after additional security and Istio behaviour validation.
