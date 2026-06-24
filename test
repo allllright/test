@@ -1,66 +1,914 @@
-Redis Incident Response and Scaling Operations Runbook
+# Redis Operations Runbook: Scaling, DR Early Creation, and Queue Cleanup
 
-1. Overview
-   1.1 Purpose
-   1.2 Scope
-   1.3 Out of Scope
-   1.4 Safety Principles
+| Metadata | Value |
+|---|---|
+| Status | `<draft / approved / archived>` |
+| Owner | `<runbook-owner>` |
+| Reviewers | `<reviewers>` |
+| Last reviewed | `<last-reviewed-date>` |
+| Related Jira | `<related-jira-link>` |
+| Related general Redis / ElastiCache / Valkey runbook | `<link-to-general-redis-runbook>` |
 
-2. Incident Triage and Impact Assessment
-   2.1 Common Symptoms
-   2.2 Initial Checks
-   2.3 Key Metrics
-   2.4 Incident Classification
+## 1. Purpose and Scope
 
-3. Immediate Stabilisation
-   3.1 Load Shedding
-   3.2 Connection Storm Control
-   3.3 Producer / Consumer Throttling
-   3.4 Actions to Avoid
+Use this runbook during Redis / AWS ElastiCache / Valkey incidents where the next action may be:
 
-4. Redis Queue Cleanup Procedure
-   4.1 When to Clear Queues
-   4.2 Approval Required
-   4.3 Pre-cleanup Checklist
-   4.4 Cleanup Procedure
-   4.5 Post-cleanup Validation
+- Scaling Redis in place.
+- Creating a DR Redis cluster early.
+- Redirecting traffic to DR Redis.
+- Clearing Redis-backed application queues.
+- Cleaning up problematic Redis client connections.
+- Rolling back after scaling, DR, or queue cleanup.
 
-5. Scaling Decision Criteria
-   5.1 When Scaling Is Appropriate
-   5.2 When Scaling Is Not Appropriate
-   5.3 Scaling Options
+This is not a general Redis troubleshooting guide. Use `<link-to-general-redis-runbook>` for Redis concepts, routine diagnostics, common Redis commands, and broad troubleshooting.
 
-6. Pre-conditions Before In-place Scaling
-   6.1 Critical Checklist
-   6.2 Backup / Snapshot
-   6.3 Application Readiness
-   6.4 Rollback / DR Readiness
+### 1.1 When to Use This Runbook
 
-7. Scaling the Redis Cluster In-place
-   7.1 Before Change
-   7.2 Execution
-   7.3 Monitoring During Change
-   7.4 Post-scaling Validation
+- Redis capacity, failover, or managed-service state is part of the incident.
+- Scaling, early DR creation, DR cutover, or queue cleanup is being considered.
+- The incident needs a rollback and validation path for Redis-related changes.
 
-8. DR Cluster Early Creation
-   8.1 Trigger Criteria
-   8.2 Provisioning
-   8.3 Snapshot Restore vs Empty Cluster
-   8.4 Traffic Redirection
-   8.5 Rolling Restart
-   8.6 Validation
+### 1.2 When Not to Use This Runbook
 
-9. Rollback and Recovery
-   9.1 Failed In-place Scaling
-   9.2 Recovery from DR Cluster
-   9.3 Returning Traffic to Original Cluster
+- The issue is routine Redis troubleshooting with no scaling, DR, or queue cleanup decision.
+- The problem is clearly application-only and Redis metrics are healthy.
+- A service-specific runbook gives a more precise procedure for the affected queue or workload.
 
-10. Communication and Escalation
-   10.1 Required Approvals
-   10.2 Incident Channel Updates
-   10.3 AWS Support Escalation
+Safety note: this runbook is an operational baseline. It does not override Incident Commander decisions, service-owner requirements, or approved emergency change processes.
 
-11. Runbook Lifecycle
-   11.1 Post-incident Updates
-   11.2 Known Gaps
-   11.3 Related Links
+## 2. Safety Gates and Approval Requirements
+
+Start with read-only checks. Align with the Incident Commander and service owner before changing traffic, deleting data, reducing processing, or affecting users.
+
+| Action | Approval required before proceeding | Why this is risky |
+|---|---|---|
+| In-place Redis scaling during an active incident | Incident Commander | May trigger failover, replication work, or a longer `modifying` state. |
+| HPA cap, worker reduction, or pausing producers | Incident Commander and service owner | May slow processing or change user-facing behavior. |
+| Early DR cluster creation | Incident Commander | Preparation step; usually lower data risk before traffic is moved, but may create cost and operational complexity. |
+| Empty DR cluster creation | Incident Commander and service owner | May cause cold-cache behavior, session loss, queue loss, or inconsistent service behavior. |
+| DR traffic cutover | Incident Commander and service owner | May redirect services to different data, empty cache, or queues. |
+| Queue purge or Redis key deletion | Incident Commander and service owner | May cause data loss, job loss, or unrecoverable business impact. |
+| Prefix-based key cleanup | Incident Commander and service owner | A wrong prefix can delete unrelated application data. |
+| `CLIENT KILL` | Incident Commander and service owner | May trigger a reconnect storm or interrupt healthy clients. |
+
+Before making a change, confirm:
+
+- Redis cluster, environment, region, and impacted services.
+- The current user impact is understood well enough to choose a mitigation.
+- The rollback or stop condition is clear.
+- The decision and timestamp are recorded in the incident timeline.
+
+Decision log template:
+
+| Field | Value |
+|---|---|
+| Decision | `<scale / create DR / cut over / clean queue / rollback / other>` |
+| Reason | `<evidence-and-current-impact>` |
+| Approval | `<incident-commander-and-service-owner-approval-where-required>` |
+| Expected risk | `<data-loss / cold-cache / slower-queue-processing / reconnect-storm / none-expected>` |
+| Stop condition | `<when-to-stop-waiting-or-roll-back>` |
+| Validation owner | `<validation-owner>` |
+| Timestamp | `<timestamp-and-timezone>` |
+
+Avoid these actions unless the incident process explicitly approves them:
+
+- `FLUSHDB`
+- `FLUSHALL`
+- Broad wildcard deletion
+- Repeated Redis scaling attempts while the cluster is already stuck in `modifying`
+- Large-scale `CLIENT KILL` without reconnect controls
+- Increasing worker or pod replicas while Redis is already under pressure
+
+## 3. Active Incident Flow
+
+### 3.1 Acknowledge and Notify
+
+1. Acknowledge the alert in the relevant alerting system.
+2. Confirm the Incident Commander, or request IC assignment if one is not already assigned.
+3. Post initial context in `<incident-channel>`.
+
+| Field | Value |
+|---|---|
+| Redis cluster / replication group | `<redis-cluster-name>` |
+| Impacted services | `<impacted-services>` |
+| Current symptoms | `<current-symptoms>` |
+| Dashboard link | `<dashboard-link>` |
+| Current mitigation owner | `<mitigation-owner>` |
+
+### 3.2 Capture Incident Context
+
+Record this before changing Redis or application configuration.
+
+| Field | Value |
+|---|---|
+| Incident severity | `<severity>` |
+| Incident Commander | `<incident-commander>` |
+| SRE owner | `<sre-owner>` |
+| Service owner | `<service-owner-or-team>` |
+| Redis cluster / replication group | `<redis-cluster-name>` |
+| Environment | `<environment>` |
+| Region / AZ | `<region>/<az>` |
+| Impacted services | `<impacted-services>` |
+| User-facing impact | `<impact-summary>` |
+| Start time | `<timestamp-and-timezone>` |
+| Incident channel | `<incident-channel>` |
+| Relevant dashboard | `<dashboard-link>` |
+| Existing general runbook | `<link-to-general-redis-runbook>` |
+
+### 3.3 Classify the Failure Mode
+
+Classify the issue quickly. The goal is to choose the next safe action.
+
+| Evidence | Likely failure mode | First operational response |
+|---|---|---|
+| `NewConnections` spikes, pod count rises, Redis timeouts increase | Application connection storm | Control HPA / workers / retries before scaling Redis. |
+| `EngineCPUUtilization`, Redis latency, or command latency is sustained high | Redis CPU pressure | Reduce load, then consider in-place scaling if cluster is stable. |
+| `DatabaseMemoryUsagePercentage` high, freeable memory low, evictions increasing | Redis memory pressure | Reduce load and consider scaling; confirm queue cleanup is not masking data loss. |
+| Network usage is near baseline limit or allowance exceeded metrics fire | Redis network saturation | Reduce high-volume traffic and consider larger node type. |
+| Cluster remains in `modifying`, failover unclear, sync blocked | Managed service / scaling issue | Stop repeated changes, start AWS escalation, consider early DR. |
+| Queue depth grows while consumers fail or retry | Application queue / worker issue | Stabilize workers; consider queue cleanup only with owner approval. |
+| Redis metrics healthy but application errors continue | Application-side issue | Use service runbook; Redis scaling is unlikely to be the main fix. |
+
+Minimum checks:
+
+- Redis health: `CurrConnections`, `NewConnections`, `EngineCPUUtilization`, `CPUUtilization`, memory usage, evictions, Redis latency, network usage, replication lag, cluster status, ElastiCache events.
+- Application health: API latency, API error rate, pod restarts, HPA events, worker lag, queue depth, retry volume, Redis client timeout errors.
+- Recent changes: deployments, config changes, traffic spikes, scheduled jobs, worker changes, feature flags.
+
+### 3.4 Run Basic Connectivity Checks
+
+Run from an application pod or approved diagnostic environment.
+
+Command examples are templates. Confirm the environment, target cluster, namespace, approval status, and secret handling before running them. Do not paste credentials into shell history, tickets, incident channels, or plain-text notes.
+
+```bash
+# Resolve Redis endpoint
+nslookup <redis-endpoint>
+
+# Check network connectivity
+nc -vz <redis-endpoint> <redis-port>
+
+# Check Redis response if redis-cli, AUTH, and TLS settings are known
+redis-cli -h <redis-endpoint> -p <redis-port> PING
+```
+
+For TLS / AUTH-enabled Redis, use the approved internal wrapper or documented process.
+
+```bash
+# TODO: add approved internal Redis TLS/AUTH connectivity command or wrapper.
+# Do not pass plaintext credentials directly on the command line.
+<approved-redis-cli-tls-auth-command> PING
+```
+
+### 3.5 Stabilize Before Scaling or Cutover
+
+Stop Redis pressure from getting worse before making larger changes.
+
+Coordinate these actions with the service owner:
+
+- Reduce non-critical traffic.
+- Reduce worker concurrency if workers are increasing Redis pressure.
+- Pause non-critical cron jobs, scheduled jobs, producers, or background jobs.
+- Cap HPA temporarily if autoscaling is multiplying Redis connections.
+- Enable rate limiting where available.
+- Disable non-critical features or reduce refresh frequency.
+- Roll back a recent deployment if it caused retry, connection, or queue behavior changes.
+
+Validation:
+
+- `NewConnections` stops increasing.
+- Redis latency stops getting worse.
+- API error rate stops increasing.
+- Queue backlog stops growing or is understood.
+- Pod count and restart rate stabilize.
+- Worker retries decrease.
+
+### 3.6 Choose the Mitigation Path
+
+Use this decision table with the Incident Commander.
+
+| Situation | Path |
+|---|---|
+| Redis metrics recover after load reduction | Keep stabilization controls in place and monitor. Scale later only if capacity is still insufficient. |
+| Redis is stable, cluster status is `available`, and capacity is still insufficient | Use in-place Redis scaling. |
+| Scaling is stuck, risky, or too slow for the incident impact | Create DR Redis early in parallel. |
+| DR Redis is ready and primary Redis is not recovering within the agreed threshold | Perform controlled DR cutover after approval. |
+| Queue backlog or poison jobs are blocking recovery and data-loss risk is accepted | Use the queue cleanup procedure after approval. |
+| The issue is mainly application retries, HPA, or unhealthy consumers | Stabilize the application path before changing Redis. |
+
+Review point:
+
+- For P1/P2 incidents, reassess the path after `TODO: define agreed review threshold for switching from in-place scaling to DR`.
+- A previous incident may suggest a 10-15 minute review point, but treat that as a prompt to reassess, not a universal rule.
+
+## 4. In-Place Redis Scaling Procedure
+
+### 4.1 When to Scale
+
+Scaling may be appropriate when all of the following are true:
+
+- Redis capacity is a likely limiting factor.
+- The cluster status is `available`.
+- No active scaling operation is already running.
+- No failover or blocked full sync is in progress.
+- Application connection storm is controlled or reducing.
+- HPA and worker behavior are stable enough that scaling will not be immediately overwhelmed.
+- The Incident Commander approves in-place scaling.
+
+Important: in-place scaling is not an instant rollback mechanism. Once the cluster enters `modifying`, the safer response to a stalled or worsening operation is usually to stop submitting more changes, escalate to AWS Support, and continue the DR path.
+
+Scaling is not the right first action when:
+
+- The application is still creating a connection storm.
+- Workers are retrying aggressively and multiplying Redis load.
+- Redis is already stuck in `modifying`.
+- Replica sync or failover is unclear.
+- AWS Support indicates backend intervention is required.
+- Queue cleanup or service rollback is the more direct mitigation.
+
+### 4.2 Choose the Scaling Option
+
+Choose the smallest scaling change that addresses the observed bottleneck. Confirm the approved internal path before making any change.
+
+| Option | Use when | Watch-outs |
+|---|---|---|
+| Vertical scaling | A node is constrained by CPU, memory, network, or connection capacity. | May put the cluster into `modifying`; not an instant rollback; confirm target node type and approval path. |
+| Replica scaling | Read traffic can use replicas, or additional redundancy is needed. | Does not fix primary write saturation by itself; may add replication work; confirm application read behavior. |
+| Shard scaling | Cluster mode is enabled and key distribution or per-shard pressure is the bottleneck. | Higher operational risk; can be slower and more complex; use only if shard scaling is approved for incident use. |
+
+### 4.3 Pre-Scaling Checklist
+
+Cluster checks:
+
+- Redis cluster / replication group confirmed: `<redis-cluster-name>`
+- Region confirmed: `<region>`
+- Environment confirmed: `<environment>`
+- Current node type recorded: `<current-node-type>`
+- Target node type recorded: `<target-node-type>`
+- Cluster mode and shard count confirmed: `<cluster-mode-and-shard-count>`
+- Replica count and replica health checked: `<replica-state>`
+- Cluster status is `available`.
+- No active modification, failover, or blocked full sync.
+- Latest snapshot / backup status checked: `<snapshot-state>`
+- ElastiCache events checked.
+
+Application checks:
+
+- Impacted services confirmed: `<impacted-services>`
+- Service owner is aware.
+- Connection storm is controlled or reducing.
+- HPA is stable or temporarily capped where approved.
+- Worker concurrency is stable or reduced where approved.
+- Recent deployments and config changes are reviewed.
+
+Decision checks:
+
+- Scaling target is approved by the Incident Commander.
+- Stop condition is agreed.
+- DR fallback is understood.
+- AWS escalation path is ready if scaling stalls.
+- Incident timeline is being updated.
+
+### 4.4 Execute Scaling
+
+TODO: add approved emergency scaling procedure link or owner-approved change path.
+
+Baseline AWS Console flow:
+
+1. Open AWS ElastiCache Console.
+2. Select the target Redis / Valkey replication group.
+3. Confirm cluster name, environment, region, and current node type.
+4. Choose `Modify`.
+5. Select the approved target capacity:
+   - Node type: `<current-node-type>` to `<target-node-type>`
+   - Replica count: `<current-replica-count>` to `<target-replica-count>`
+   - Shard count: `<current-shard-count>` to `<target-shard-count>`, if shard scaling is approved
+6. Choose `Apply immediately` only when required for the active incident and approved by the Incident Commander.
+7. Submit the change.
+8. Record the timestamp, operator, old capacity, new capacity, and approval in the incident timeline.
+
+### 4.5 Monitor Scaling
+
+Monitor until the cluster is `available` and application behavior is stable.
+
+Redis / ElastiCache:
+
+- Cluster status and time in `modifying`
+- ElastiCache events
+- Replication lag
+- Failover or node replacement events
+- Redis latency / command latency
+- `EngineCPUUtilization`
+- `CPUUtilization`
+- `NewConnections`
+- `CurrConnections`
+- Network usage and allowance exceeded metrics
+- Memory usage and evictions
+
+Application:
+
+- API latency
+- API error rate
+- Worker / consumer lag
+- Queue depth
+- Pod restarts
+- HPA events
+- Redis timeout errors
+
+### 4.6 Stop Waiting and Start DR Path
+
+Stop waiting on in-place scaling as the only mitigation when one or more of these is true:
+
+- Scaling is stuck beyond the agreed incident threshold.
+- Cluster remains in `modifying` without visible progress.
+- User impact is worsening.
+- Replica sync appears blocked.
+- No stable primary is visible.
+- AWS Support confirms or suspects a backend issue.
+- Repeating the scaling action would increase risk.
+
+Actions:
+
+1. Do not submit repeated scaling changes.
+2. Start or continue AWS Support escalation.
+3. Start early DR Redis creation if not already started.
+4. Keep load-reduction controls in place.
+5. Record the decision and timestamp in the incident timeline.
+
+Collect for AWS Support:
+
+- Redis cluster / replication group: `<redis-cluster-name>`
+- Region: `<region>`
+- Current cluster status and time in status
+- Recent ElastiCache events
+- Recent scaling or configuration changes
+- Relevant metric links or screenshots
+- Impacted services and business impact
+- Timeline of incident decisions and changes
+- Whether DR creation or cutover is in progress
+
+### 4.7 Post-Scaling Validation
+
+Scaling is not complete until both Redis and the service are healthy.
+
+Validate:
+
+- Cluster status is `available`.
+- Redis latency is back to acceptable range.
+- API latency and error rate are improving or back to baseline.
+- `NewConnections` is stable.
+- `CurrConnections` is stable.
+- Network pressure is reduced.
+- Memory pressure is reduced.
+- Evictions are not increasing unexpectedly.
+- Replication is healthy.
+- Queue processing is stable or recovering.
+- Service owner confirms critical workflows are working.
+- Temporary HPA / worker / feature-flag mitigations have clear owners for rollback.
+
+## 5. Early DR Redis Creation Procedure
+
+### 5.1 When to Create DR Early
+
+Create DR Redis early when the primary cluster may not recover fast enough or when in-place scaling has become risky.
+
+Trigger examples:
+
+- Scaling is stuck.
+- Cluster is stuck in `modifying`.
+- Replica lost sync or full sync appears blocked.
+- Network throttling persists after load reduction.
+- Connection storm continues after application-side controls.
+- User impact remains high.
+- AWS Support is required and recovery time is unclear.
+- The Incident Commander wants a parallel recovery path.
+
+Early DR creation is a preparation step. It creates an option before the incident runs out of time and does not move application traffic by itself.
+
+The high-risk actions are choosing an empty DR data strategy and cutting traffic over to DR. Treat those as separate decisions with separate approval and validation.
+
+### 5.2 Choose DR Data Strategy
+
+Choose this before creating or using DR.
+
+| Option | Use when | Risk / tradeoff |
+|---|---|---|
+| Restore from snapshot | Redis contains required queues, sessions, state, or data that must be preserved. | Slower recovery; snapshot may still be stale. |
+| Empty DR cluster | Redis is disposable cache, or service owner accepts cache/session/queue loss. | Possible data loss, job loss, session loss, cold-cache load, or inconsistent behavior. |
+
+Do not choose an empty DR cluster unless:
+
+- The Incident Commander approves.
+- The service owner accepts the data-loss and cold-cache assumptions.
+- The expected impact is recorded in the incident timeline.
+- The rollback path is understood.
+
+### 5.3 Create DR Redis
+
+DR should match production unless the Incident Commander and service owner approve a different emergency profile.
+
+Required values:
+
+| Setting | Value |
+|---|---|
+| DR cluster name | `<dr-redis-cluster-name>` |
+| Region | `<region>` |
+| VPC | `<vpc-id>` |
+| Subnet group | `<subnet-group>` |
+| Security groups | `<security-group-list>` |
+| Engine and version | `<engine-version>` |
+| Node type | `<node-type>` |
+| Replica count | `<replica-count>` |
+| Cluster mode / shards | `<cluster-mode-and-shards>` |
+| Parameter group | `<parameter-group>` |
+| AUTH / ACL setting | `<auth-acl-setting>` |
+| TLS setting | `<tls-setting>` |
+| Encryption / KMS | `<encryption-kms-setting>` |
+| Backup / snapshot setting | `<backup-snapshot-setting>` |
+| Required tags | `<required-tags>` |
+| Monitoring / alarms | `<dashboard-alarm-links>` |
+
+Baseline flow:
+
+1. Confirm the DR data strategy: snapshot restore or empty cluster.
+2. Confirm the required settings above.
+3. Create the Redis / Valkey replication group using the approved internal path.
+4. Record the timestamp, operator, settings, and data strategy in the incident timeline.
+5. Monitor creation until status is `available`.
+
+TODO: add approved DR creation procedure link, including whether AWS Console, Terraform, pipeline, or emergency break-glass process is used.
+
+### 5.4 Validate DR Readiness
+
+Do not cut over traffic until these checks pass.
+
+- DR cluster status is `available`.
+- Primary endpoint is available.
+- Endpoint resolves from the application environment.
+- Security groups allow access from the application.
+- AUTH / ACL settings match application requirements.
+- TLS settings match application requirements.
+- Monitoring is visible.
+- Basic connectivity works from an approved source.
+- Basic read/write test is successful if safe for the service.
+- Service owner confirms the DR data strategy remains acceptable.
+
+Example checks:
+
+```bash
+nslookup <dr-redis-endpoint>
+nc -vz <dr-redis-endpoint> <redis-port>
+redis-cli -h <dr-redis-endpoint> -p <redis-port> PING
+```
+
+For TLS / AUTH-enabled Redis, use the approved internal wrapper or documented process.
+
+```bash
+# TODO: add approved internal Redis TLS/AUTH connectivity command or wrapper.
+# Do not pass plaintext credentials directly on the command line.
+<approved-redis-cli-tls-auth-command> PING
+```
+
+## 6. DR Traffic Cutover Procedure
+
+### 6.1 Cutover Gate
+
+Do not cut over to DR unless all of the following are true:
+
+- Incident Commander approves cutover.
+- Service owner approves cutover.
+- DR Redis readiness checks have passed.
+- Data-loss, queue-loss, session-loss, and cold-cache assumptions are documented.
+- The exact application configuration path is known.
+- Rollback path is known.
+- Validation owner is assigned.
+
+Configuration path:
+
+- Redis endpoint config key: `<redis-endpoint-config-key>`
+- Config source: `<configmap / secret / external-config / deployment-values / feature-flag / service-discovery>`
+- Namespace or environment: `<namespace-or-environment>`
+- Workloads to restart or roll: `<deployment-or-workload-list>`
+- Rollback endpoint: `<original-redis-endpoint>`
+
+### 6.2 Execute Cutover
+
+Baseline approach:
+
+1. Announce the cutover in the incident channel.
+2. Confirm the DR endpoint and config key.
+3. Update the approved configuration path with the DR Redis endpoint.
+4. Roll affected workloads gradually.
+5. Validate after each service, deployment, or batch.
+6. Keep the original Redis endpoint available for rollback.
+7. Record every config change and rollout timestamp.
+
+Example Kubernetes commands for review only:
+
+```bash
+# Inspect current config
+kubectl -n <namespace> get configmap <configmap-name> -o yaml
+
+# Update config through the approved internal process
+kubectl -n <namespace> edit configmap <configmap-name>
+
+# Restart one deployment gradually
+kubectl -n <namespace> rollout restart deployment/<deployment-name>
+
+# Watch rollout
+kubectl -n <namespace> rollout status deployment/<deployment-name>
+```
+
+If the Redis endpoint is stored in a Secret, follow the approved internal secret update process. Do not paste secret values into the incident channel.
+
+### 6.3 Validate After Cutover
+
+Validate immediately and again after the agreed observation window.
+
+- Applications connect to DR Redis.
+- API latency improves.
+- API error rate reduces.
+- Critical user journeys work.
+- Background workers process normally.
+- Queue behavior is expected for the chosen DR data strategy.
+- DR Redis latency is stable.
+- DR Redis `NewConnections` and `CurrConnections` are stable.
+- Cold-cache refill behavior is acceptable.
+- No unexpected AUTH, TLS, DNS, or security group errors appear.
+- Service owner confirms recovery.
+
+If validation fails:
+
+1. Stop further rollout.
+2. Keep the current batch under observation.
+3. Decide with the Incident Commander whether to roll back, fix config, or continue.
+4. Record the decision and evidence.
+
+## 7. Queue and Client Cleanup Procedure
+
+This section covers application queue cleanup and Redis client connection cleanup. Do not confuse application queues with Redis replication backlog, internal sync state, or ElastiCache managed-service behavior.
+
+### 7.1 Queue Cleanup Gate
+
+Do not clear queues unless all of the following are true:
+
+- Queue owner is confirmed.
+- Queue key or prefix is confirmed.
+- Queue type is known or safely discovered.
+- Data-loss and replay assumptions are accepted by the service owner.
+- Incident Commander approves cleanup.
+- Exact cleanup method is agreed.
+- Rollback or compensation path is understood, if one exists.
+
+Record before cleanup:
+
+| Field | Value |
+|---|---|
+| Queue owner | `<queue-owner-team>` |
+| Queue key or prefix | `<exact-queue-key-or-prefix>` |
+| Queue type | `<list / stream / zset / set / hash / unknown>` |
+| Cleanup reason | `<cleanup-reason>` |
+| Data-loss assumption | `<accepted / not-accepted>` |
+| Replay or compensation path | `<replay-or-compensation-details>` |
+| Approval | `<incident-commander-and-service-owner-approval>` |
+| Timestamp | `<timestamp>` |
+
+### 7.2 Do Not Clear Queues If
+
+Stop and escalate before cleanup if any of the following are true:
+
+- Queue ownership is unknown.
+- The exact key or prefix is not confirmed.
+- The business impact of deletion is unclear.
+- The service owner has not accepted data-loss or replay assumptions.
+- The backlog may contain business-critical jobs that cannot be replayed.
+- The observed backlog may be Redis replication backlog or managed-service sync behavior.
+
+### 7.3 When Queue Cleanup May Be Appropriate
+
+Queue cleanup may be appropriate when:
+
+- Stuck jobs are blocking recovery.
+- Poison messages are retrying and repeatedly stressing Redis or the service.
+- Workers are deadlocked and cannot drain stale work.
+- Queue backlog is causing repeated failures.
+- Messages are stale and no longer useful.
+- Service owner confirms jobs can be deleted, replayed, or compensated.
+
+### 7.4 Discover Queue Keys Safely
+
+Use discovery before deletion. Avoid `KEYS` on production Redis.
+
+```bash
+# Dry run: list sample matching keys
+redis-cli -h <redis-host> --scan --pattern '<queue-prefix>:*' | head -50
+```
+
+Cluster-mode warning: key discovery may need to run per primary shard or through approved internal tooling. Do not assume one `SCAN` command covers all shards.
+
+Check key type before choosing a cleanup method.
+
+```bash
+redis-cli -h <redis-host> TYPE <queue-key>
+```
+
+Check queue size based on type.
+
+```bash
+# List queue
+redis-cli -h <redis-host> LLEN <queue-key>
+
+# Stream queue
+redis-cli -h <redis-host> XLEN <queue-key>
+
+# Sorted set queue
+redis-cli -h <redis-host> ZCARD <queue-key>
+
+# Set queue
+redis-cli -h <redis-host> SCARD <queue-key>
+
+# Hash
+redis-cli -h <redis-host> HLEN <queue-key>
+```
+
+TODO: add approved queue prefix, queue type, and service ownership reference.
+
+### 7.5 Clear Queues
+
+Prefer the service's approved queue purge tool or application-level cleanup mechanism when one exists.
+
+If Redis-level cleanup is required:
+
+- Use exact keys where possible.
+- Prefer targeted cleanup over prefix-based cleanup.
+- Prefer `UNLINK` over `DEL` for large keys because memory reclamation is asynchronous.
+- Avoid `FLUSHDB` and `FLUSHALL`.
+- Avoid broad wildcard deletion unless explicitly approved.
+
+Review-only examples:
+
+```bash
+# Dry run: list sample matching keys
+redis-cli -h <redis-host> --scan --pattern '<queue-prefix>:*' | head -50
+
+# Targeted async delete for exact confirmed queue keys
+redis-cli -h <redis-host> UNLINK <queue-key-1> <queue-key-2>
+```
+
+Prefix-based cleanup is higher risk. Use only when the prefix is exact, reviewed, and approved.
+
+```bash
+# Review-only: prefix-based async delete after explicit approval
+redis-cli -h <redis-host> --scan --pattern '<queue-prefix>:*' | \
+  xargs -r -n 100 redis-cli -h <redis-host> UNLINK
+```
+
+Stream-backed queues need service-specific handling. Do not assume deleting a stream is safe.
+
+```bash
+# Inspect stream length
+redis-cli -h <redis-host> XLEN <stream-key>
+
+# TODO: add approved stream cleanup method.
+# Options may include service-level purge, consumer group reset, XTRIM, or deleting the exact stream key.
+```
+
+Sorted-set-backed queues also need service-specific handling.
+
+```bash
+# Inspect sorted set queue length
+redis-cli -h <redis-host> ZCARD <zset-queue-key>
+
+# TODO: add approved sorted-set cleanup method.
+```
+
+### 7.6 Client Connection Cleanup
+
+Use client cleanup only when necessary. Prefer application-side controls first.
+
+Client cleanup may be appropriate when:
+
+- Zombie clients remain connected after mitigation.
+- Excessive output buffers are causing pressure.
+- Known bad clients continue to generate load.
+- Connection storm does not stop after HPA, timeout, retry, and worker controls.
+
+Inspect clients first:
+
+```bash
+redis-cli -h <redis-host> CLIENT LIST
+```
+
+Before using `CLIENT KILL`, confirm:
+
+- `CLIENT KILL` is allowed in production.
+- Target client name, address, or type is safe to kill.
+- Application clients have bounded reconnect behavior.
+- HPA, retry, timeout, and backoff controls are already in place.
+- Incident Commander and service owner approve the action.
+
+Targeted review-only example:
+
+```bash
+redis-cli -h <redis-host> CLIENT KILL ADDR <ip:port>
+```
+
+Last-resort review-only example:
+
+```bash
+redis-cli -h <redis-host> CLIENT KILL TYPE normal
+```
+
+Warning: broad client termination can trigger another connection storm. Do not use broad client cleanup unless reconnect behavior is controlled and explicitly approved.
+
+### 7.7 Validate After Cleanup
+
+Validate:
+
+- Queue depth reduced as expected.
+- Redis latency improved or remained stable.
+- `CurrConnections` reduced if client cleanup was used.
+- `NewConnections` did not spike again.
+- Workers process normally.
+- API error rate improved.
+- No retry storm restarted.
+- No unexpected data loss is reported.
+- Service owner confirms behavior is expected.
+
+## 8. Rollback and Return to Normal
+
+### 8.1 If Scaling Fails or Stalls
+
+Actions:
+
+- Stop repeated scaling attempts.
+- Keep AWS Support engaged if required.
+- Capture ElastiCache events and relevant metric screenshots or links.
+- Continue load reduction.
+- Continue DR path if user impact persists.
+- Record the current state and decision point in the incident timeline.
+
+### 8.2 If DR Cutover Fails
+
+Possible rollback triggers:
+
+- Application cannot connect to DR Redis.
+- AUTH, TLS, DNS, or security group errors persist.
+- Error rate or latency worsens.
+- Queue behavior is unsafe or unexpected.
+- Cold-cache behavior creates unacceptable load.
+- Service owner rejects the observed behavior.
+
+Rollback process:
+
+1. Announce rollback decision in the incident channel.
+2. Restore the original Redis endpoint using the approved configuration path.
+3. Roll affected workloads gradually.
+4. Validate after each service, deployment, or batch.
+5. Keep DR Redis available until the Incident Commander confirms it is no longer needed.
+6. Record timestamps and validation evidence.
+
+### 8.3 Return Traffic to Original Redis
+
+Return traffic only after the original Redis cluster is healthy and the Incident Commander approves.
+
+Required checks:
+
+- AWS confirms recovery if AWS Support was involved.
+- Original cluster status is `available`.
+- Replication is healthy.
+- Redis latency is normal.
+- Network usage is safe.
+- Memory pressure is normal.
+- Application metrics are stable.
+- Queue behavior is understood.
+- Service owners agree to return traffic.
+
+Return process:
+
+1. Confirm original Redis endpoint.
+2. Confirm the configuration update path.
+3. Update configuration back to the original endpoint.
+4. Roll affected workloads gradually.
+5. Validate after each rollout.
+6. Monitor Redis and application metrics.
+7. Record the timestamp in the incident timeline.
+
+### 8.4 Remove Temporary Mitigations
+
+Before incident closure, assign owners for reverting or keeping:
+
+- HPA caps
+- Worker concurrency reductions
+- Paused jobs or producers
+- Feature flags
+- Rate limits
+- Temporary config changes
+- DR Redis cluster
+- Additional alarms or dashboards
+
+Do not remove mitigations until service metrics and Redis metrics are stable for the agreed observation window.
+
+### 8.5 Decommission DR Redis
+
+Do not delete DR Redis immediately after recovery.
+
+Confirm:
+
+- Observation window: `<link-to-incident-observation-guidance>`
+- Whether DR is still needed for rollback.
+- Whether data needs to be exported, compared, or retained.
+- Cost owner: `<cost-owner>`
+- Final validation owner: `<final-validation-owner>`
+- Deletion approval: `<deletion-approver>`
+- Post-deletion confirmation path: `<link-to-dr-decommission-process>`
+
+## 9. Recovery Validation and Closure
+
+### 9.1 Recovery Criteria
+
+Suggested recovery criteria:
+
+- API latency is stable for the agreed observation period.
+- Error rate is back to baseline or accepted by the Incident Commander.
+- Critical user journeys work.
+- Redis latency is normal.
+- `NewConnections` is back to baseline.
+- `CurrConnections` is stable.
+- No active Redis scaling issue remains.
+- No active Redis sync issue remains.
+- Queue backlog is stable, draining, or accepted by the service owner.
+- Service owner confirms recovery.
+
+Suggested initial observation period:
+
+- `<link-to-incident-observation-guidance>`
+- A prior draft suggested 30 minutes for active incident recovery; confirm this with the Incident Commander.
+
+### 9.2 Resolve the Incident
+
+Before resolving:
+
+- Update the incident timeline.
+- Confirm all temporary mitigations have owners.
+- Confirm whether DR Redis remains for observation.
+- Confirm whether HPA caps, worker limits, rate limits, or feature flags need follow-up.
+- Confirm AWS Support case status if one was opened.
+- Confirm follow-up Jira tickets.
+- Mark the alert or incident resolved in the relevant incident system.
+
+### 9.3 Post-Incident Runbook Updates
+
+After the incident:
+
+- Add confirmed symptoms, metrics, dashboards, and commands.
+- Add confirmed decision thresholds.
+- Add exact queue names or key patterns only if approved for documentation.
+- Add service-specific links where needed.
+- Add what worked and what did not.
+- Link the postmortem and related Jira tickets.
+- Convert risk-bearing open items into confirmed steps after the right owner reviews them.
+- Fill routine links and dashboard references from existing documentation without blocking runbook use.
+
+## 10. Production Readiness Review and Open Items
+
+Use this section to track the few items that still need ownership or links. Routine link gaps should not block incident use.
+
+### 10.1 Must Confirm Before High-Risk Actions
+
+Confirm these before using the related high-risk action in production.
+
+| Area | Must confirm | Primary owner | Why it matters |
+|---|---|---|---|
+| Queue identity and ownership | Exact queue key prefixes, queue types, and owning service/team. | Service owner / senior engineer | Prevents deleting the wrong data. |
+| Queue deletion policy | Whether queued jobs can be deleted, replayed, retried, or compensated. | Service owner / senior engineer | Prevents unrecoverable job loss. |
+| Empty DR assumptions | Whether an empty DR cluster is acceptable for each Redis use case. | Service owner / Incident Commander | Confirms cache, session, queue, and data-loss impact. |
+| DR cutover and rollback | Exact config path, rollout method, validation owner, and rollback path. | Service owner / platform owner | Prevents failed cutover or rollback. |
+| Emergency scaling approval | Who can approve in-place scaling, `Apply immediately`, replica changes, and shard changes. | Incident process owner / platform owner | Controls changes that can trigger `modifying`, failover, or sync work. |
+| HPA and worker reduction | Who can approve HPA caps, worker reduction, paused producers, and reversal. | Service owner / platform owner | Avoids unexpected processing or user impact. |
+| AWS Support escalation | P1/P2 escalation path, required severity, and who can open or escalate the case. | Incident process owner / AWS account owner | Avoids delay in managed-service recovery. |
+| DR review threshold | Review point for switching from in-place scaling only to early DR creation. | Incident Commander / service owner | Keeps the DR option available during severe incidents. |
+
+### 10.2 Can Be Filled From Existing Documentation
+
+Fill these from existing approved docs.
+
+| Item | Source to use | Notes |
+|---|---|---|
+| General Redis / ElastiCache / Valkey runbook | `<link-to-general-redis-runbook>` | Generic troubleshooting. |
+| Jira task | `<related-jira-link>` | Runbook tracking. |
+| Dashboards and alarms | `<link-to-redis-dashboard>` | Metrics and alert context. |
+| Incident process | `<link-to-incident-process>` | Severity, IC, comms, and timeline rules. |
+| AWS Support case template | `<link-to-aws-support-template>` | Use with the evidence checklist above. |
+| Platform standards | `<link-to-platform-standards>` | Naming, tags, networking, security groups, TLS, and encryption. |
+| Secret update process | `<link-to-secret-management-runbook>` | Do not duplicate secret handling here. |
+| Incident closure guidance | `<link-to-incident-closure-guidance>` | Observation window by severity. |
+
+### 10.3 Optional Future Improvements
+
+Useful later, but not required for incident use.
+
+- Add service-specific appendices after service owners approve key names and cleanup rules.
+- Add screenshots for the approved ElastiCache scaling path if console use is allowed.
+- Add a one-page cutover worksheet for incidents that involve multiple services.
+- Add sample AWS Support case text.
