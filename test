@@ -1,1 +1,66 @@
+Redis Incident Response and Scaling Operations Runbook
 
+1. Overview
+   1.1 Purpose
+   1.2 Scope
+   1.3 Out of Scope
+   1.4 Safety Principles
+
+2. Incident Triage and Impact Assessment
+   2.1 Common Symptoms
+   2.2 Initial Checks
+   2.3 Key Metrics
+   2.4 Incident Classification
+
+3. Immediate Stabilisation
+   3.1 Load Shedding
+   3.2 Connection Storm Control
+   3.3 Producer / Consumer Throttling
+   3.4 Actions to Avoid
+
+4. Redis Queue Cleanup Procedure
+   4.1 When to Clear Queues
+   4.2 Approval Required
+   4.3 Pre-cleanup Checklist
+   4.4 Cleanup Procedure
+   4.5 Post-cleanup Validation
+
+5. Scaling Decision Criteria
+   5.1 When Scaling Is Appropriate
+   5.2 When Scaling Is Not Appropriate
+   5.3 Scaling Options
+
+6. Pre-conditions Before In-place Scaling
+   6.1 Critical Checklist
+   6.2 Backup / Snapshot
+   6.3 Application Readiness
+   6.4 Rollback / DR Readiness
+
+7. Scaling the Redis Cluster In-place
+   7.1 Before Change
+   7.2 Execution
+   7.3 Monitoring During Change
+   7.4 Post-scaling Validation
+
+8. DR Cluster Early Creation
+   8.1 Trigger Criteria
+   8.2 Provisioning
+   8.3 Snapshot Restore vs Empty Cluster
+   8.4 Traffic Redirection
+   8.5 Rolling Restart
+   8.6 Validation
+
+9. Rollback and Recovery
+   9.1 Failed In-place Scaling
+   9.2 Recovery from DR Cluster
+   9.3 Returning Traffic to Original Cluster
+
+10. Communication and Escalation
+   10.1 Required Approvals
+   10.2 Incident Channel Updates
+   10.3 AWS Support Escalation
+
+11. Runbook Lifecycle
+   11.1 Post-incident Updates
+   11.2 Known Gaps
+   11.3 Related Links
